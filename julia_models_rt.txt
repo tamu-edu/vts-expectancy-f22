@@ -1,0 +1,50 @@
+### Julia models
+using StatsKit, RCall, JellyMe4, DataFrames, RData, DisplayAs
+
+#### Data with individual differences
+rtdata = load("/Users/joseph.orr/Documents/repositories/vts_expectancy_f22/Rdata/cleanRTdata.w.demos.Rds");
+
+rt_id_m1 = fit(MixedModel, @formula(logRT ~ 1 + alt * prevRew * rewCond * rewExpectancy * genderid * basrrC * bisC + (1 | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :prevRew => EffectsCoding(base = "hi"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+rt_id_m2 = fit(MixedModel, @formula(logRT ~ 1 + alt * prevRew * rewCond * rewExpectancy * genderid * basrrC * bisC + (1 + alt * prevRew * rewCond | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :prevRew => EffectsCoding(base = "hi"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+rt_id_m3 = fit(MixedModel, @formula(logRT ~ 1 + alt * prevRew * rewCond * rewExpectancy * genderid * basrrC * bisC + (1 + alt + prevRew + rewCond | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :prevRew => EffectsCoding(base = "hi"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+rt_bis_m1 = fit(MixedModel, @formula(logRT ~ 1 + alt * prevRew * rewCond * rewExpectancy * genderid * bisC + (1 | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :prevRew => EffectsCoding(base = "hi"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+rt_bis_m2 = fit(MixedModel, @formula(logRT ~ 1 + alt * prevRew * rewCond * rewExpectancy * genderid * bisC + (1 + alt * prevRew * rewCond | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :prevRew => EffectsCoding(base = "hi"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+rt_bis_m3 = fit(MixedModel, @formula(logRT ~ 1 + alt * prevRew * rewCond * rewExpectancy * genderid * bisC + (1 + alt + prevRew + rewCond | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :prevRew => EffectsCoding(base = "hi"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+rt_rr_m1 = fit(MixedModel, @formula(logRT ~ 1 + alt * prevRew * rewCond * rewExpectancy * genderid * basrrC + (1 | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :prevRew => EffectsCoding(base = "hi"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+rt_rr_m2 = fit(MixedModel, @formula(logRT ~ 1 + alt * prevRew * rewCond * rewExpectancy * genderid * basrrC + (1 + alt * prevRew * rewCond | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :prevRew => EffectsCoding(base = "hi"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+rt_rr_m3 = fit(MixedModel, @formula(logRT ~ 1 + alt * prevRew * rewCond * rewExpectancy * genderid * basrrC + (1 + alt + prevRew + rewCond | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :prevRew => EffectsCoding(base = "hi"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+R"library(readr)"
+
+rt_id_m1_j = (rt_id_m1, rtdata);
+@rput rt_id_m1_j;
+R"write_rds(rt_id_m1_j, 'Rdata/rt_id_m1.Rds')";
+
+rt_rr_m1_j = (rt_rr_m1, rtdata);
+@rput rt_rr_m1_j;
+R"write_rds(rt_rr_m1_j, 'Rdata/rt_rr_m1_j.Rds')";
+
+rt_bis_m2_j = (rt_bis_m2, rtdata);
+@rput rt_bis_m2_j;
+R"write_rds(rt_bis_m2_j, 'Rdata/rt_bis_m2_j.Rds')";
+
+# Save model table to latex
+open("rt_model_id.md", "w") do io
+    show(io, MIME("text/markdown"), rt_id_m1)
+end
+
+open("rt_model_bas.md", "w") do io
+    show(io, MIME("text/markdown"), rt_rr_m3)
+end
+
+open("rt_model_bis.md", "w") do io
+    show(io, MIME("text/markdown"), rt_bis_m2)
+end

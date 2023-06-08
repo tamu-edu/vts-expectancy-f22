@@ -1,0 +1,1298 @@
+---
+title: "vts_expectancy_f22"
+author: "Joseph Orr"
+editor: visual
+format:
+  pdf:
+    knitr:
+      opts_chunk:
+        dev: "cairo_pdf"
+  # For Cairo
+  docx:
+    knitr:
+      opts_chunk:
+        dev: "png"
+        dev-args:
+          - "cairo-png"
+---
+
+# Setup
+
+```{r Setup Libraries, message=FALSE, warning=FALSE, include=FALSE}
+library(here)
+library(tidyverse)
+library(data.table)
+library(rstatix)
+library(zoo)
+library(ggforce)
+library(ggpubr)
+library(JuliaCall)
+library(lme4)
+library(ggeffects)
+library(ggbeeswarm)
+library(ggplot2)
+library(viridis)
+library(RColorBrewer)
+library(xtable)
+library(redcapAPI)
+library(glmmTMB)
+library(ggcorrplot)
+```
+
+```{r Setup path, include=FALSE}
+workdir=here()
+knitr::opts_knit$set(root.dir = workdir)
+```
+
+```{r}
+theme_set(theme_minimal(base_size = 16, base_family = "Arial") +
+theme(plot.title = element_text(hjust = 0.5),
+      plot.subtitle = element_text(hjust = 0.5),
+      legend.position = "right", strip.text.x = 
+        element_text(size = 14, color = "black"),
+      strip.background = element_rect(
+        fill="lightgrey", linewidth = 1, linetype="solid"),
+      panel.grid.minor.y = element_blank(),
+      panel.grid.minor.x = element_blank(), 
+      panel.grid.major.x = element_blank()))
+```
+
+# Read in data
+
+```{r Read in raw data, include=FALSE, warning=FALSE}
+filelist<- Sys.glob(file.path(workdir,"data","*","*vts_reward_expectancy_bt*.csv"))
+fulldata <- data.frame()
+
+for (file in filelist) {
+  rawdata <- fread(file, nThread = 6)
+  if ("OS" %in% colnames(rawdata)) {
+    data <- rawdata %>% select(participant, acc, E1, points_trial, points_cumul, 
+                               alt, task, condition, rewExpectancy, rewCond, curr_shape,
+                               curr_topStim, curr_bottStim, blockNum, LShape_ID, RShape_ID, 
+                               trainBlock, training.thisN, training_resp.keys, 
+                               training_resp.rt, target_resp.rt, target_resp.keys, 
+                               trials_norew.thisRepN, trials_rew.thisRepN,
+                               OS, browser, xResolution, yResolution)
+    data$platform = "online"
+    } else if ("rewExpectancy" %in% colnames(rawdata)) {
+      data <- rawdata %>% select(participant, acc, E1, points_trial, points_cumul, 
+                               alt, task, condition, rewExpectancy, rewCond, curr_shape,
+                               curr_topStim, curr_bottStim, blockNum, LShape_ID, RShape_ID, 
+                               trainBlock, training.thisN, 
+                               training_resp.keys, training_resp.rt, 
+                               target_resp.rt, target_resp.keys, trials_norew.thisRepN,
+                               trials_rew.thisRepN)
+      data$platform = "inlab"
+      data$OS = "MacIntel"
+      data$browser = NA
+      data$xResolution = NA
+      data$yResolution = NA
+    }
+  
+  data <- data %>% 
+    mutate(condition = ifelse(!is.na(training.thisN), "training", data$condition))
+  
+  data$participant <- as_factor(data$participant)
+  
+  # Collapse trial numbers, code as numeric
+  data <- unite(data, trialNum, c(training.thisN, trials_norew.thisRepN, trials_rew.thisRepN),
+                na.rm = TRUE)
+  data$trialNum <- as.numeric(data$trialNum)
+  data <- data %>% filter(!is.na(trialNum))
+  data$blockNum = 0
+  n=0
+  for (row in 1:nrow(data)) {
+    if (data[row, "trialNum"]==0) {
+      data[row, "blockNum"]=n+1
+      n=n+1
+      } else {
+        data[row, "blockNum"]=n
+      }
+    }
+  data$blockNum <- as.factor(data$blockNum)
+  
+  data <- data %>% 
+    filter(!rewCond == "vtsPrac") %>% 
+    filter(!(condition == "" & task == ""))
+  fulldata <- rbind.data.frame(fulldata,data)
+}
+```
+
+## Recode variables
+
+```{r Recode variables}
+fulldata <- unite(fulldata, RT, c(training_resp.rt, target_resp.rt), na.rm = TRUE)
+fulldata$RT <- as.numeric(fulldata$RT)
+fulldata$RT <- fulldata$RT * 1000 # convert from sec to ms  
+
+
+fulldata <- rename(fulldata, shape = curr_shape)
+fulldata <- fulldata %>% 
+  mutate(condition = ifelse(acc == 0, "error", fulldata$condition))
+
+fulldata <- fulldata %>% 
+  mutate(condition = ifelse(!is.na(trainBlock), "training", fulldata$condition))
+  
+# Set rewExpectancy and rewCond as factors
+fulldata$rewCond <- as.factor(fulldata$rewCond)
+fulldata$rewCond <- relevel(fulldata$rewCond, "Hi")
+fulldata <- fulldata %>%
+  mutate_if(is.character, list(~na_if(.,""))) %>% 
+  fill(rewExpectancy, .direction = "up")
+fulldata$rewExpectancy <- as.factor(fulldata$rewExpectancy)
+fulldata$rewExpectancy <- factor(fulldata$rewExpectancy, levels = c("low", "high"))
+fulldata$rewExpectancy <- relevel(fulldata$rewExpectancy, "high")
+
+# Previous Trial Reward Outcome
+fulldata$prevRew=NA
+fulldata <- fulldata %>% 
+  mutate(prevRew = case_when(E1 == 1 ~ "error",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Lo" & 
+                               lag(points_trial)==1  ~ "lo",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Lo" & 
+                               lag(points_trial)==10 ~ "lo+",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Hi" & 
+                               lag(points_trial)==10 ~ "hi",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Hi" & 
+                               lag(points_trial)==1  ~ "hi-",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Hi" & 
+                               lag(points_trial)==0  ~ "hi0"))
+fulldata <- relocate(fulldata, prevRew, .before = rewCond)
+fulldata$prevRew <- as.factor(fulldata$prevRew)
+fulldata$prevRew <- factor(fulldata$prevRew, levels = c("hi", "lo", "hi-", "lo+", 
+                                                        "hi0", "error")) 
+
+# Recode as factors
+fulldata$alt <- as.factor(fulldata$alt)
+fulldata$alt <- relevel(fulldata$alt, "repeat")
+fulldata$platform <- as.factor(fulldata$platform)
+fulldata$platform <- relevel(fulldata$platform, "inlab")
+init_subs <- fulldata %>% group_by(participant) %>% tally()
+```
+
+# Read data from REDcap surveys
+
+```{r Read survey data}
+Online_TOKEN = "8092328E3AA4D7901F5341ADA9DD1177"
+Inlab_TOKEN = "A171103888A7D82C027463ACE9957867"
+URL = "https://redcap.tamhsc.edu/api/"
+rcon <- redcapConnection(url=URL, token=Online_TOKEN)
+df_redcap_online <- exportRecords(rcon)
+df_redcap_online <- df_redcap_online %>% 
+  filter(consent_timestamp >= "2022-11-13")
+
+rcon <- redcapConnection(url=URL, token=Inlab_TOKEN)
+df_redcap_inlab <- exportRecords(rcon)
+df_redcap_inlab <- df_redcap_inlab %>% 
+  filter(consent_timestamp >= "2022-10-25")
+
+demos_online <- df_redcap_online %>% 
+  select('sona_id','genderid','age','colorblind','education', 'consent_timestamp', 
+         'race___1', 'race___2', 'race___3', 'race___4', 'race___5', 'race___6',
+         'race___7', 'race___8', 'race___9', 'race_other', 
+         'bis1', 'bis2', 'bis3', 'bis4', 'bis5', 'bis6', 'bis7', 
+         'bas_rr1', 'bas_rr2', 'bas_rr3', 'bas_rr4', 'bas_rr5',
+         "bas_fun1", "bas_fun2", "bas_fun3", "bas_fun4",
+         "bas_drive1", "bas_drive2", "bas_drive3", "bas_drive4")
+demos_online$sona_id <- as.numeric(demos_online$sona_id)
+demos_online <- demos_online %>% 
+  group_by(sona_id) %>% 
+  arrange(consent_timestamp) %>% 
+  filter(consent_timestamp == first(consent_timestamp)) %>% 
+  ungroup()
+
+demos_inlab <- df_redcap_inlab %>% 
+  select('sona_id','genderid','age','colorblind','education', 'consent_timestamp', 
+         'race___1', 'race___2', 'race___3', 'race___4', 'race___5', 'race___6',
+         'race___7', 'race___8', 'race___9', 'race_other', 
+         'bis1', 'bis2', 'bis3', 'bis4', 'bis5', 'bis6', 'bis7', 
+         'bas_rr1', 'bas_rr2', 'bas_rr3', 'bas_rr4', 'bas_rr5',
+         "bas_fun1", "bas_fun2", "bas_fun3", "bas_fun4",
+         "bas_drive1", "bas_drive2", "bas_drive3", "bas_drive4")
+demos_inlab$sona_id <- as.numeric(demos_inlab$sona_id)
+# df_redcap_inlab$sona_id[159] = "69140_2"
+# df_redcap_inlab$sona_id[225] = "98412_2"
+# df_redcap_inlab$sona_id[133] = "74219"
+# df_redcap_inlab$sona_id[202] = "34086"
+# df_redcap_inlab$sona_id[210] = "drop"
+# df_redcap_inlab$sona_id[236] = "13675"
+demos_inlab <- demos_inlab %>% 
+  group_by(sona_id) %>% 
+  arrange(consent_timestamp) %>% 
+  filter(consent_timestamp == first(consent_timestamp)) %>% 
+  ungroup()
+
+demos <- rbind(demos_inlab, demos_online)
+demos <- demos %>% distinct(sona_id, .keep_all = TRUE)
+only_surveys <- demos$sona_id[!(demos$sona_id %in% fulldata$participant)]
+participant_demos <- demos %>% filter(sona_id %in% fulldata$participant)
+
+participant_demos$education <- as.factor(participant_demos$education)
+```
+
+## Convert race demos
+
+```{r}
+# Convert Race to 1/0 - When multiple are selected the totals will be more than the total n
+participant_demos <- participant_demos %>% 
+  mutate(race = case_when(participant_demos$race___1 == "Checked" & 
+                            participant_demos$race___2 == "Checked" ~ "Mult",
+                          participant_demos$race___1 == "Checked" & 
+                            participant_demos$race___3 == "Checked" ~ "Mult",
+                          participant_demos$race___1 == "Checked" & 
+                            participant_demos$race___5 == "Checked" ~ "Mult",
+                          participant_demos$race___1 == "Checked" & 
+                            participant_demos$race___6 == "Checked" ~ "Mult",
+                          participant_demos$race___1 == "Checked" & 
+                            participant_demos$race___7 == "Checked" ~ "Mult",
+                          participant_demos$race___2 == "Checked" & 
+                            participant_demos$race___6 == "Checked" ~ "Mult",
+                          participant_demos$race___1 == "Checked" ~ "White",
+                          participant_demos$race___2 == "Checked" ~ "Hispanic",
+                          participant_demos$race___3 == "Checked" ~ "Black",
+                          participant_demos$race___4 == "Checked" ~ "Hawaiian",
+                          participant_demos$race___5 == "Checked" ~ "Asian",
+                          participant_demos$race___6 == "Checked" ~ "Indian",
+                          participant_demos$race___7 == "Checked" ~ "MidEast",
+                          participant_demos$race___8 == "Checked" ~ "PreferNA",
+                          participant_demos$race___9 == "Checked" ~ "Other"))
+participant_demos <-  select(participant_demos,-contains('race_'))
+participant_demos$race <- as.factor(participant_demos$race)
+```
+
+## Convert bis and bas
+
+```{r Convert bis & bas}
+# Convert BISBAS to Numerical for Easy Tabulation
+participant_demos <- participant_demos %>% 
+  mutate_at(vars(starts_with(c("bis","bas"))),
+            ~ case_when(. == "very false for me" ~ 4, 
+                        . == "somewhat false for me" ~ 3, 
+                        . == "somewhat true for me" ~ 2, 
+                        . == "very true for me" ~ 1))
+
+participant_demos <- participant_demos %>% 
+  mutate(bas_rr1 = 5 - bas_rr1) %>% 
+  mutate(bas_rr2 = 5 - bas_rr2) %>% 
+  mutate(bas_rr3 = 5 - bas_rr3) %>% 
+  mutate(bas_rr4 = 5 - bas_rr4) %>% 
+  mutate(bas_rr5 = 5 - bas_rr5) %>% 
+  mutate(bas_rr = (bas_rr1 + bas_rr2 + bas_rr3 + bas_rr4 + bas_rr5)) %>% 
+  mutate(bas_fun1 = 5 - bas_fun1) %>% 
+  mutate(bas_fun2 = 5 - bas_fun2) %>% 
+  mutate(bas_fun3 = 5 - bas_fun3) %>% 
+  mutate(bas_fun4 = 5 - bas_fun4) %>%
+  mutate(bas_fun = (bas_fun1 + bas_fun2 + bas_fun3 + bas_fun4)) %>% 
+  mutate(bas_drive1 = 5 - bas_drive1) %>% 
+  mutate(bas_drive2 = 5 - bas_drive2) %>% 
+  mutate(bas_drive3 = 5 - bas_drive3) %>% 
+  mutate(bas_drive4 = 5 - bas_drive4) %>% 
+  mutate(bas_drive = (bas_drive1 + bas_drive2 + bas_drive3 + bas_drive4)) %>%
+  mutate(bas = (bas_drive + bas_fun + bas_rr)) %>%
+  mutate(bis2 = 5 - bis2) %>% 
+  mutate(bis3 = 5 - bis3) %>% 
+  mutate(bis4 = 5 - bis4) %>% 
+  mutate(bis5 = 5 - bis5) %>% 
+  mutate(bis7 = 5 - bis7) %>% 
+  mutate(bis = (bis1 + bis2 + bis3 + bis4 + bis5 + bis6 + bis7))
+
+# Define function for center scaling measures
+center_scale <- function(x) {
+    as.double(scale(x, scale = FALSE))
+}
+```
+
+## Convert substance use measures
+
+*These haven't been coded for REDcap yet*
+
+```{r Convert substance use measures, eval=FALSE}
+# Convert substance use
+participant_demos <- participant_demos %>% 
+  mutate(Tobacco_Freq = case_when(Tobacco_Freq == "Frequently (> 5 a day)" ~ 5,
+                        Tobacco_Freq == "Daily (< 5 a day)" ~ 4,
+                        Tobacco_Freq == "Occasionally (3-4 a week)" ~ 3,
+                        Tobacco_Freq == "Rarely (~1 a week)" ~ 2,
+                        Tobacco_Freq == "Never" ~ 1)) %>% 
+  mutate(AlcoholFreq = case_when(AlcoholFreq == "More than 5 times a week" ~ 5,
+                                 AlcoholFreq == "2-3 times a week" ~ 4,
+                                 AlcoholFreq == "1-2 times a week" ~ 3,
+                                 AlcoholFreq == "Only occasionally" ~ 2,
+                                 AlcoholFreq == "Never" ~ 1)) %>% 
+  mutate(AlcoholQuant = case_when(AlcoholQuant == "More than 5 drinks" ~ 5,
+                                  AlcoholQuant == "3-5 drinks" ~ 4,
+                                  AlcoholQuant == "1-2 drinks" ~ 3,
+                                  AlcoholQuant == "Only occasionally" ~ 2,
+                                  AlcoholQuant == "Never" ~ 1)) %>% 
+  mutate(DrugsFreq = case_when(DrugsFreq == "Daily" ~ 5,
+                               DrugsFreq == "3-5 times a week" ~ 4,
+                               DrugsFreq == "1-2 times a week" ~ 3,
+                               DrugsFreq == "Only occasionally" ~ 2,
+                               DrugsFreq == "Never" ~ 1))
+```
+
+```{r}
+median(participant_demos$age, na.rm = TRUE)
+sd(participant_demos$age, na.rm = TRUE)
+
+summary(participant_demos)
+participant_demos %>% group_by(race) %>% 
+  summarise(n=n())
+```
+
+# Data cleaning
+
+## RT data cleaning
+
+Basic RT summary statistics
+
+```{r Summary stats for RT data}
+summary_RT <- fulldata %>% 
+  filter(!condition == "training") %>% 
+  filter(rewExpectancy=="low" | rewExpectancy=="high") %>% 
+  group_by(participant, rewExpectancy) %>%
+  filter(RT>200 & acc==1 & E1==0) %>% 
+  summarise(meanRT = mean(RT, na.rm = TRUE),
+            sdRT = sd(RT, na.rm = TRUE),
+            count = sum(!is.na(RT)), .groups = "keep")
+summary(summary_RT)
+```
+
+RT histograms
+
+```{r Plot RT Histogram}
+summary_RT %>% 
+  ggplot(aes(x=meanRT, fill=rewExpectancy)) + 
+  geom_histogram(bins=15, position="dodge") +
+  geom_vline(data = filter(summary_RT, rewExpectancy=="high"),
+             aes(xintercept=median(meanRT)), color="blue", linetype="dashed", linewidth=1) +
+  geom_vline(data = filter(summary_RT, rewExpectancy=="low"),
+             aes(xintercept=median(meanRT)), color="red", linetype="dashed", linewidth=1) +
+  scale_x_continuous(name="Mean RT", breaks = seq(400,1800,200)) +
+  scale_y_continuous(name = "Count", breaks = seq(0,100,10))
+```
+
+Distributions show typical right tail. Similar distributions for low and high expectancy.
+
+```{r Determine RT outliers, warning=FALSE, echo=TRUE}
+RT_outliers <- fulldata %>% 
+  filter(!condition == "training") %>% 
+  group_by(participant) %>%
+  filter(RT>200 & acc==1 & E1==0) %>% 
+  summarise(meanRT = mean(RT, na.rm = TRUE)) %>% 
+  identify_outliers(meanRT)
+RT_exclude <- subset(RT_outliers,is.extreme=="TRUE") %>% select(participant)
+excludeSubjs <- RT_exclude
+excludeSubjs <- unique(excludeSubjs)
+```
+
+1 outlier identified
+
+## ACC data cleaning
+
+Basic ACC summary statistics
+
+```{r Summarise Accuracy Data, warning=FALSE}
+summary_ACC <- fulldata %>% 
+  filter(!condition == "training") %>% 
+  group_by(participant, rewExpectancy) %>% 
+  summarise(ACC = mean(acc, na.rm = TRUE),
+            count=sum(!is.na(RT)), .groups = "keep")
+summary(summary_ACC)
+```
+
+```{r Plot Accuracy Histogram}
+summary_ACC %>% 
+  ggplot(aes(x=ACC, fill=rewExpectancy)) + 
+  geom_histogram(bins=20, position="dodge") + 
+  geom_vline(data = filter(summary_ACC, rewExpectancy=="high"),
+             aes(xintercept=median(ACC)), color="blue", linetype="dashed", linewidth=1) +
+  geom_vline(data = filter(summary_ACC, rewExpectancy=="low"),
+             aes(xintercept=median(ACC)), color="red", linetype="dashed", linewidth=1) +
+  scale_x_continuous(name="Accuracy", breaks = seq(0, 1, .05)) +
+  scale_y_continuous(name = "Count", breaks = seq(0,70,10))
+```
+
+Typical strong left tail. High expectancy shows more low accuracy outliers.
+
+```{r Check acc outliers}
+ACC_outliers <- fulldata %>% 
+  filter(!condition == "training") %>% 
+  group_by(participant) %>% 
+  summarise(ACC = mean(acc, na.rm = TRUE)) %>% 
+  identify_outliers(ACC)
+ACC_exclude <- subset(ACC_outliers,is.extreme=="TRUE") %>% select(participant)
+excludeSubjs <- rbind(excludeSubjs,ACC_exclude)
+excludeSubjs <- unique(excludeSubjs)
+```
+
+6 outliers identified in ACC data
+
+## Points Summary
+
+### Compare points_total during training to identify outliers
+
+```{r}
+summary_training <- fulldata %>% 
+  filter(condition == "training") %>% 
+  group_by(participant, rewExpectancy) %>% 
+  summarise(points = sum(points_trial), sd = sd(points_trial), .groups = "keep")
+summary(summary_training)
+
+summary_points <- fulldata %>% 
+  filter(!condition == "training") %>%
+  group_by(participant, rewExpectancy) %>% 
+  summarise(points = sum(points_trial), sd = sd(points_trial), .groups = "keep") %>% 
+  ungroup() %>% 
+  group_by(rewExpectancy) %>% 
+  summarise(median = median(points), sd = sd(points))
+summary(summary_points)
+
+summary_training %>% ggplot(aes(x=points, fill=rewExpectancy)) + 
+  geom_histogram(bins=15, position="dodge") + 
+  geom_vline(data = filter(summary_training, rewExpectancy=="high"),
+             aes(xintercept=median(points)), color="red", linetype="dashed", linewidth=1) +
+  geom_vline(data = filter(summary_training, rewExpectancy=="low"),
+             aes(xintercept=median(points)), color="blue", linetype="dashed", linewidth=1)
+```
+
+As expected, the median number of points is higher for high than low expectancy.
+
+## task choice data cleaning
+
+Examine proportion of letter and number task choices
+
+```{r summary of task choice, warning=FALSE}
+summary_task_choice <- fulldata %>%
+  filter(!condition == "training") %>% 
+  group_by(participant, rewExpectancy, task) %>% 
+  summarise(n = n(), .groups = "drop_last") %>% 
+  summarise(lettProp = sum(n[task=="letter"])/sum(n), .groups = "keep")
+summary(summary_task_choice)
+```
+
+```{r plot task choice histogram}
+summary_task_choice %>% 
+  ggplot(aes(x=lettProp, fill=rewExpectancy)) + 
+  geom_histogram(bins=25, position = "dodge") + 
+  scale_x_continuous(name="Letter Task Choice Proportion", breaks = seq(0, 1, .1)) +
+  scale_y_continuous(name = "Count", breaks = seq(0,100,10)) +
+  geom_vline(data = filter(summary_task_choice, rewExpectancy=="high"),
+             aes(xintercept=median(lettProp)), color="red", linetype="dashed", linewidth=1) +
+  geom_vline(data = filter(summary_task_choice, rewExpectancy=="low"),
+             aes(xintercept=median(lettProp)), color="blue", linetype="dashed", linewidth=1)
+```
+
+Participants showed a good balance of task choices with the median at 49.7%. There are outliers at both ends.
+
+```{r Check for task choice outliers, warning=FALSE}
+task_outliers <- summary_task_choice %>% 
+  identify_outliers(lettProp)
+task_exclude <- subset(task_outliers,is.extreme=="TRUE") %>% select(participant)
+
+
+Q1 = quantile(summary_task_choice$lettProp, probs = .25)
+Q3 = quantile(summary_task_choice$lettProp, probs = .75);
+IQR = Q3-Q1
+task_exclude <- summary_task_choice %>% 
+  filter( (lettProp < Q1-3*IQR) || (lettProp > Q3+3*IQR) ) %>% 
+  ungroup() %>% select(participant)
+
+excludeSubjs <- rbind(excludeSubjs,task_exclude)
+excludeSubjs <- unique(excludeSubjs)
+```
+
+13 outliers with proportions \<17% and \>85%
+
+## Switch data
+
+```{r Summarise switch rate, warning=FALSE}
+summary_VSR <- fulldata %>% 
+  group_by(participant, rewExpectancy, alt) %>%
+  summarise(n = n(), .groups = "drop_last") %>%
+  summarise(VSR = n[alt=="switch"]/sum(n), count=sum(n), .groups = "keep") %>% 
+  filter(!is.na(VSR))
+summary(summary_VSR)
+```
+
+```{r Plot VSR distribution}
+summary_VSR %>% 
+  ggplot(aes(x=VSR, fill=rewExpectancy)) + 
+  geom_histogram(bins=15, position = "dodge") +
+  geom_vline(data = filter(summary_VSR, rewExpectancy=="high"),
+             aes(xintercept=median(VSR)), color="red", linetype="dashed", linewidth=1) +
+  geom_vline(data = filter(summary_VSR, rewExpectancy=="low"),
+             aes(xintercept=median(VSR)), color="blue", linetype="dashed", linewidth=1) +
+  scale_x_continuous(name="Voluntary Switch Rate", breaks = seq(0.0, 1.0, .1)) +
+  scale_y_continuous(name = "Count", breaks = seq(0,50,5))
+```
+
+Switch rate was around 25% for high and low expectancy in line with most previous studies. Broad distribution.
+
+```{r Check for VSR Outliers}
+summary_VSR %>% 
+  identify_outliers(VSR)
+
+# normal outlier detection doesn't work on these probability data because Q1-3*IQR is negative
+# so calculate by hand using the same criteria to ID extreme outliers (3*IQR)
+Q1 = quantile(summary_VSR$VSR, probs = .25); Q3 = quantile(summary_VSR$VSR, probs = .75);
+IQR = Q3-Q1
+VSR_exclude <- summary_VSR %>% 
+  filter( (VSR < Q1-3*IQR) || (VSR > Q3+3*IQR) ) %>% 
+  ungroup() %>% select(participant)
+excludeSubjs <- rbind(excludeSubjs,VSR_exclude)
+excludeSubjs <- unique(excludeSubjs)
+```
+
+# Remove outliers
+
+```{r Remove outliers from data, warning=FALSE, echo=FALSE}
+cleandata <- fulldata %>% 
+  filter(! participant %in% excludeSubjs$participant) %>% 
+  filter(!condition == "training") %>% 
+  filter(!is.na(rewCond)) %>% 
+  filter(RT > 200) %>% 
+  droplevels()
+cleandata <- cleandata %>% 
+  mutate(blockNum = recode(blockNum, "4"="1",
+                           "5" = "2",
+                           "6" = "3",
+                           "7" = "4",
+                           "8" = "5",
+                           "9" = "6",
+                           "10" = "7",
+                           "11" = "8",
+                           "12" = "9"))
+
+```
+
+## Link participant demos with clean data
+
+```{r Link demos with data}
+participant_demos <- participant_demos %>% 
+  filter(sona_id %in% cleandata$participant) %>% 
+  rename(participant = sona_id)
+participant_demos$participant <- as.factor(participant_demos$participant)
+final_demos <- participant_demos %>%
+  filter(genderid == "Male" | genderid == "Female") %>% 
+  filter(!is.na(bis)) %>% 
+  filter(!is.na(bas_rr)) %>% 
+  droplevels() %>% 
+  mutate(bisC = center_scale(bis)) %>% 
+  mutate(basrrC = center_scale(bas_rr))
+
+cleandata.w.demos <- cleandata %>% 
+  group_by(participant) %>% 
+  filter(participant %in% final_demos$participant)
+cleandata.w.demos <- left_join(cleandata.w.demos, final_demos, by=c("participant"))
+included_subjs <- cleandata.w.demos %>% group_by(participant) %>% summarise(n=n()) %>% select(participant)
+```
+
+## Summarise final demographics
+
+```{r}
+summary(final_demos)
+```
+```{r}
+ggplot(final_demos, aes(x = bisC, y = basrrC)) +
+  geom_point(position = position_jitter(width = 0.5, height = 0.5)) + 
+  geom_smooth(method = lm, se = FALSE)
+BISBAS <- final_demos[c("bis","bas_fun","bas_drive", "bas_rr")]
+BISBAS <- BISBAS[complete.cases(BISBAS), ]
+cor_mat(BISBAS)
+```
+```{r}
+write.csv(final_demos, here("Rdata","final_demos_050223.csv"))
+```
+
+# RT Analyses
+
+## RT by block
+
+```{r Plot RT by block}
+summary_corrRT <- cleandata.w.demos %>% 
+  filter(acc == 1 & E1 == 0) %>% 
+  filter(!(blockNum == 1 & trialNum < 32)) %>% 
+  group_by(participant, rewExpectancy, blockNum) %>% 
+  summarise(meanRT = mean(RT, na.rm = TRUE), .groups="keep")
+
+ggplot(data = summary_corrRT, aes(x=factor(blockNum), y=meanRT, fill=factor(blockNum))) +
+  geom_violin(aes(fill=factor(blockNum)), show.legend = FALSE, alpha = .8) +
+  geom_boxplot(color="Dark Gray", alpha=.4, width=.3, position = position_dodge(.8), show.legend = FALSE) +
+  theme_minimal() + scale_y_continuous(breaks = seq(200,3000,500)) +
+  xlab(label = "Block Number") + ylab(label = "Mean RT") +
+  scale_fill_manual(values = c("#FDE725FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF"))
+ggsave(filename = "RT_block.pdf", device = cairo_pdf, path = here("Rdata"))
+```
+
+There is a large drop in RT as reward is introduced (even when just including second half of block 1). The last block has more outliers than preceding blocks.
+
+## Compare raw and log rt data
+
+```{r Compare residuals for raw and log RT}
+# Set contrasts
+cleandata.w.demos$participant <- as.factor(cleandata.w.demos$participant)
+cleanRTdata.w.demos <- cleandata.w.demos %>% 
+  filter(acc == 1 & E1 == 0) %>% 
+  filter(!is.na(participant)) %>%
+  filter(!is.na(bisC) | is.na(basrrC)) %>% 
+  filter(prevRew == "hi" | prevRew == "lo") %>% 
+  filter(!rewCond == "noRew") %>% 
+  droplevels()
+
+
+cleanRTdata.w.demos$logRT <- log10(cleanRTdata.w.demos$RT)
+contrasts(cleanRTdata.w.demos$alt) <- contr.sum(2)
+contrasts(cleanRTdata.w.demos$rewCond) <- contr.sum(2)
+contrasts(cleanRTdata.w.demos$prevRew) <- contr.sum(2)
+contrasts(cleanRTdata.w.demos$rewExpectancy) <- contr.sum(2)
+contrasts(cleanRTdata.w.demos$platform) <- contr.sum(2)
+write_rds(cleanRTdata.w.demos, here("Rdata","cleanRTdata.w.demos.Rds"))
+
+rt_m0 <- lmer(formula = RT ~ 1 + alt*prevRew*rewCond*rewExpectancy + (1 | participant), data = cleanRTdata.w.demos, REML=FALSE)
+rt_m1 <- lmer(formula = log10(RT) ~ 1 + alt*prevRew*rewCond*rewExpectancy + (1 | participant), data = cleanRTdata.w.demos, REML=FALSE)
+res.rt0 <- data.frame(residuals(rt_m0))
+res.rt1 <- data.frame(residuals(rt_m1))
+ggplot(res.rt0, aes(sample = res.rt0$residuals.rt_m0.)) +  # Create QQplot with ggplot2 package
+  stat_qq() +
+  stat_qq_line(col = "red")
+ggplot(res.rt1, aes(sample = res.rt1$residuals.rt_m1.)) +  # Create QQplot with ggplot2 package
+  stat_qq() +
+  stat_qq_line(col = "red")
+```
+
+Log RT has more linear residuals. Use for subsequent analyses.
+
+## Data Summary
+
+```{r RT as effect of expectancy rewCond and gender}
+summaryRTstats <- cleanRTdata.w.demos %>% 
+  group_by(participant, genderid, rewExpectancy, rewCond) %>% 
+  summarise(RT = mean(RT, na.rm = TRUE), .groups = "keep") 
+summaryRTstats %>%  ggplot(aes(x = rewCond, y = RT, color = genderid)) +
+  ggbeeswarm::geom_quasirandom(alpha = 0.2) +
+  geom_boxplot(fill = "transparent") +
+  facet_row("rewExpectancy") + theme_ggeffects()
+```
+
+Boxplots suggest a possible gender by rewExpectancy interaction. Males are faster for high expectancy than low expectancy with no obvious difference in females.
+
+## BIS/BAS Model
+
+```{r}
+rt_id_m1 <- readRDS(here('Rdata','rt_id_m1.Rds'))
+```
+
+### Summary
+
+```{r}
+summ_rt_m1 <- summary(rt_id_m1)
+jt_rt_id_m1 <- emmeans::joint_tests(rt_id_m1)
+i <- order(jt_rt_id_m1[,6], decreasing = FALSE)
+head(jt_rt_id_m1[i, ], 18)
+```
+
+Plot highest order interactions that contain lower-level effects.
+
+### Reward by Prob by Gender by BIS
+
+```{r}
+#       rewCond:rewExpectancy:genderid:bisC             1 Inf   6.330  6.330  0.0119
+
+rt_id_pred1 <- ggemmeans(rt_id_m1, 
+                      terms = c("rewCond", "rewExpectancy", "genderid", "bisC"), 
+                      type = "fe")
+rt_id_pred1$panel <- factor(rt_id_pred1$panel, 
+                            levels = c(-3.53, 0.14, 3.80),
+                            labels = c("-1SD", "Mean", "+1SD"))
+rt_id_pred1$group <- factor(rt_id_pred1$group, 
+                            levels = c("high", "low"),
+                            labels = c("80% Valid", "60% Valid"))
+
+# Create Plots
+## BIS at 3 levels
+p <- ggplot(rt_id_pred1, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(linewidth = 1.0, position = position_dodge(.3)) + 
+  geom_point(size = 2, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .2, linewidth = 1.0) +
+  facet_grid(rows = vars(facet), cols = vars(panel)) +
+  xlab("Reward Prospect") + ylab("logRT") + 
+  labs(color = "Reward Probability", subtitle = "BIS") +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  scale_color_discrete(type = c("#2AD533", "#D5332A")) +
+  scale_y_continuous(limits = c(2.65,2.9), 
+                     breaks = seq(2.65,2.9,.1), 
+                     labels = c("2.65","2.75","2.85"))
+plot(p)
+ggsave(here("Rdata", "RT_BIS_RewProbGender.pdf"), device = cairo_pdf, 
+       dpi = 'retina', width = 5, height = 7, units = "in")
+```
+
+```{r}
+## Continuous BIS
+rt_id_pred1a <- ggemmeans(rt_id_m1, 
+                      terms = c("bisC", "rewCond", "rewExpectancy", "genderid[Male]"), 
+                      type = "fe")
+rt_id_pred1b <- ggemmeans(rt_id_m1, 
+                      terms = c("bisC", "rewCond", "rewExpectancy", "genderid[Female]"), 
+                      type = "fe")
+rt_id_pred1a$facet <- factor(rt_id_pred1a$facet, levels = c("high", "low"),
+                   labels = c("80% Valid", "60% Valid"))
+rt_id_pred1b$facet <- factor(rt_id_pred1b$facet, levels = c("high", "low"),
+                   labels = c("80% Valid", "60% Valid"))
+
+p1 <- ggplot(rt_id_pred1a, aes(x = x, y = predicted)) +
+  geom_ribbon(aes(ymin=conf.low, ymax=conf.high, fill=group), 
+              alpha=0.2, show.legend = FALSE) +
+  geom_smooth(aes(y=predicted, color=group), linewidth=1.5) +
+  facet_grid(rows = vars(facet), cols = vars(panel)) +
+  xlab("BIS") + ylab("logRT") + 
+  labs(color = "Reward Prospect", subtitle = "") +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  scale_y_continuous(limits = c(2.64,3.03), breaks = seq(2.65,3.0,.1), labels = c("2.65","2.75","2.85","2.95")) +
+  scale_color_discrete(type = c("#2AD533", "#D5332A")) +
+  scale_fill_discrete(type = c("#2AD533", "#D5332A"))
+plot(p1)
+ggsave(here("Rdata", "RT_BIS_RewProb-Male.pdf"), device = cairo_pdf, 
+       dpi = 'retina', width = 5, height = 7, units = "in")
+
+p2 <- ggplot(rt_id_pred1b, aes(x = x, y = predicted)) +
+  geom_ribbon(aes(ymin=conf.low, ymax=conf.high, fill=group), alpha=0.2, show.legend = FALSE) +
+  geom_smooth(aes(y=predicted, color=group), linewidth=1.5) +
+  facet_grid(rows = vars(facet), cols = vars(panel)) +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  xlab("BIS") + ylab("") + 
+  labs(color = "Reward Prospect", subtitle = "") +
+  guides(y.sec = guide_none("Reward Probability")) +
+  scale_y_continuous(limits = c(2.64,3.03), breaks = seq(2.65,3.0,.1), labels = c("2.65","2.75","2.85","2.95")) +
+  scale_color_discrete(type = c("#2AD533", "#D5332A")) +
+  scale_fill_discrete(type = c("#2AD533", "#D5332A"))
+plot(p2)
+ggsave(here("Rdata", "RT_BIS_RewProb-Female.pdf"), device = cairo_pdf, 
+       dpi = 'retina', width = 5, height = 7, units = "in")
+```
+
+Male subjects in the high reward expectancy condition show a negative relationship between BIS and RT on high reward trials.
+
+Compare slope at high and low reward for males vs. females.
+
+```{r}
+hypothesis_test(rt_id_m1, c("bisC", "rewCond", "rewExpectancy", "genderid"), test = NULL)
+```
+
+Female subjects in the low expectancy condition had sig. neg. slopes for BIS for both high and low reward. However, there was no significant pairwise differences in slope.
+
+### Reward Cond by Prob by BAS
+
+```{r}
+#    rewCond:rewExpectancy:basrrC                    1 Inf   8.530  8.530  0.0035
+rt_id_pred2 <- ggemmeans(rt_id_m1, 
+                      terms = c("basrrC", "rewCond", "rewExpectancy"), 
+                      type = "fe")
+rt_id_pred2$facet <- factor(rt_id_pred2$facet, levels = c("high", "low"),
+                   labels = c("80% Valid", "60% Valid"))
+
+# Create Plots
+p <- ggplot(rt_id_pred2, aes(x = x, y = predicted)) +
+  geom_ribbon(aes(ymin=conf.low, ymax=conf.high, fill = group), 
+              alpha=0.2, show.legend = FALSE) +
+  geom_smooth(aes(y=predicted, color=group), linewidth=1) +
+  facet_grid(cols = vars(facet)) +
+  xlab("BAS") + ylab("logRT") + 
+  labs(color = "Reward\nProspect", subtitle = "BAS-Reward Responsiveness") +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  scale_y_continuous(limits = c(2.7,2.9), breaks = seq(2.7,2.9,.1), labels = c("2.7","2.8", "2.9"))
+set_palette(p=p, palette = "Set1")
+ggsave(here("Rdata", "RT_RewCondProbBAS.pdf"), device = cairo_pdf, 
+       dpi = 'retina', width = 7, height = 5, units = "in")
+```
+
+```{r}
+hypothesis_test(rt_id_m1, c("basrrC", "rewCond",  "rewExpectancy"), test = NULL)
+hypothesis_test(rt_id_m1, c("basrrC", "rewCond",  "rewExpectancy"))
+```
+Significant difference in bas slope between Hi&Lo only at 80:20
+### rewCond by Probability
+
+```{r}
+# rewCond:rewExpectancy
+rt_id_pred2b <- ggemmeans(rt_id_m1, 
+                      terms = c("rewCond", "rewExpectancy"), 
+                      type = "fe")
+rt_id_pred2b$group <- factor(rt_id_pred2b$group, levels = c("high", "low"),
+                             labels = c("80% Valid", "60% Valid"))
+
+# Create Plots
+p <- ggplot(rt_id_pred2b, aes(x = x, y = predicted, color = group, group = group)) +
+  geom_line(linewidth = 1.0, position = position_dodge(.3)) + 
+  geom_point(size = 2, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .2, linewidth = 1.0) +
+  xlab("Reward Prospect") + ylab("logRT") + 
+  labs(color = "Reward Probability") +
+  theme(legend.position = "bottom", legend.direction = "horizontal") + 
+  scale_color_discrete(type = c("#1944E6", "#E6BB19"))
+plot(p)
+ggsave(here("Rdata", "RT_RewCondProb.pdf"), device = cairo_pdf, 
+       dpi = 'retina', width = 6, height = 5, units = "in")
+```
+
+```{r}
+hypothesis_test(rt_id_m1, c("rewCond",  "rewExpectancy"))
+```
+Hi-Lo for rewExpectancy
+
+### Alt by Reward and Gender
+
+```{r}
+#     alt:rewCond:genderid                            1 Inf   5.482  5.482  0.0192
+rt_id_pred3 <- ggemmeans(rt_id_m1, 
+                      terms = c("rewCond", "alt", "genderid"), 
+                      type = "fe", back.transform = TRUE)
+rt_id_pred3$group <- factor(rt_id_pred3$group, levels = c("repeat", "switch"),
+                            labels = c("Repeat", "Switch"))
+
+# Create Plots
+p <- ggplot(rt_id_pred3, aes(x = x, y = predicted, color = group, group = group)) +
+  geom_line(linewidth = 1.0, position = position_dodge(.3)) + 
+  geom_point(size = 2, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .2, linewidth = 1.0) +
+  facet_grid(cols = vars(facet)) +
+  theme(legend.position = "right") +
+  xlab("Reward Prospect") + ylab("logRT") + 
+  labs(color = "Task\nTransition", subtitle = "Gender") + 
+  scale_y_continuous(limits = c(2.74,2.85), breaks = c(2.75, 2.8, 2.85), 
+                     labels = c("2.75","2.8","2.85"))
+set_palette(p=p, palette = "Set2")
+ggsave(here("Rdata", "RT_RewAltGender.pdf"), device = cairo_pdf, 
+       dpi = 'retina', width = 6, height = 5, units = "in")
+```
+
+```{r}
+hypothesis_test(rt_id_m1, terms = c("rewCond", "alt", "genderid"))
+```
+Females: Sig. SC at Hi, Alt x Rew Int
+Gender SC diff at Hi
+Males: Hi-Lo diff for repeats, Alt X Rew int
+
+### Alt by Reward, bis, bas
+
+```{r}
+#    alt:rewCond:basrrC:bisC                         1 Inf   4.272  4.272  0.0388
+rt_id_pred4 <- ggemmeans(rt_id_m1, 
+                      terms = c("rewCond", "alt", "bisC", "basrrC"), 
+                      type = "fe")
+rt_id_pred4$group <- factor(rt_id_pred4$group, levels = c("repeat", "switch"),
+                            labels = c("Repeat", "Switch"))
+rt_id_pred4$facet <- factor(rt_id_pred4$facet, 
+                                 levels = c(-3.53, 0.14, 3.80),
+                                 labels = c("-1SD", "Mean", "+1SD"))
+rt_id_pred4$panel <- factor(rt_id_pred4$panel, 
+                                 levels = c(-1.78, 0.08, 1.95),
+                                 labels = c("-1SD", "Mean", "+1SD"))
+
+
+# Create Plots
+p <- ggplot(rt_id_pred4, aes(x = x, y = predicted, color = group, group = group)) +
+  geom_line(size = 1.0, position = position_dodge(.3)) + 
+  geom_point(size = 2, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .2, linewidth = 1.0) +
+  facet_grid(cols = vars(facet), rows = vars(panel)) +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  xlab("Reward Prospect") + ylab("logRT") + 
+  labs(color = "Task\nTransition", subtitle = "BIS") +
+  guides(y.sec = guide_none("BAS-Reward Responsiveness")) +
+  scale_color_discrete(type = c("#4426D9", "#BBD926")) +
+  scale_y_continuous(limits = c(2.72,2.86), breaks = c(2.75,2.8,2.85), 
+                     labels = c("2.75","2.8","2.85"))
+plot(p)
+ggsave(here("Rdata", "RT_AltRewBISBAS.pdf"), device = cairo_pdf, 
+       dpi = 'retina', width = 6, height = 8, units = "in")
+```
+
+```{r}
+#  alt:rewCond:basC:bis	1	Inf	4.818	4.818	0.0282
+rt_id_pred4a <- ggemmeans(rt_id_m1, 
+                      terms = c("bisC", "alt", "rewCond", "basrrC"), 
+                      type = "fe")
+rt_id_pred4a$group <- factor(rt_id_pred4a$group, levels = c("repeat", "switch"),
+                            labels = c("Repeat", "Switch"))
+rt_id_pred4a$panel <- factor(rt_id_pred4a$panel, 
+                                 levels = c(-1.78, 0.08, 1.95),
+                                 labels = c("-1SD", "Mean", "+1SD"))
+
+# Create Plots
+p <- ggplot(rt_id_pred4a, aes(x = x, y = predicted)) +
+  geom_ribbon(aes(ymin=conf.low, ymax=conf.high, fill=group), 
+              alpha=0.2, show.legend = FALSE) +
+  geom_smooth(aes(y=predicted, color=group), linewidth=1) +
+  facet_grid(rows = vars(facet), cols = vars(panel)) +
+  xlab("BIS") + ylab("logRT") + 
+  labs(color = "Task\nTransition", subtitle = "BAS") +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  guides(y.sec = guide_none("Reward Prospect")) +
+  scale_y_continuous(limits = c(2.69,2.97), 
+                     breaks = seq(2.75,2.95,.1), 
+                     labels = c("2.75","2.85","2.95")) +
+  scale_color_discrete(type = c("#4426D9", "#BBD926")) +
+  scale_fill_discrete(type = c("#4426D9", "#BBD926"))
+plot(p)
+ggsave(here("Rdata", "RT_AltRewBISBAS_alt.pdf"), device = cairo_pdf, 
+       dpi = 'retina', width = 6, height = 8, units = "in")
+```
+
+### Reward Transition by Gender
+
+```{r}
+#  prevRew:rewCond:genderid:bisC                   1 Inf   5.019  5.019  0.0251
+rt_id_pred5 <- ggemmeans(rt_id_m1, 
+                      terms = c("prevRew", "rewCond", "genderid", "bisC"), 
+                      type = "fe")
+rt_id_pred5$panel <- factor(rt_id_pred5$panel, 
+                                 levels = c(-3.53, 0.14, 3.80),
+                                 labels = c("-1SD", "Mean", "+1SD"))
+
+# Create Plots
+p <- ggplot(rt_id_pred5, aes(x = x, y = predicted, color = group, group = group)) +
+  geom_line(size = 1.0, position = position_dodge(.3)) + 
+  geom_point(size = 2, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .2, linewidth = 1.0) +
+  facet_grid(cols = vars(facet), rows = vars(panel)) +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  xlab("Previous Reward Outcome") + ylab("logRT") + 
+  labs(color = "Reward Prospect", subtitle = "Gender") + 
+  scale_color_discrete(type = c("#C631CE", "#CEC631")) +
+  guides(y.sec = guide_none("BIS")) +
+  scale_y_continuous(limits = c(2.7,2.87), 
+                     breaks = seq(2.75,2.85,.1), 
+                     labels = c("2.75","2.85"))
+plot(p)
+ggsave(here("Rdata", "RT_RewTrans_GenderBIS.pdf"), device = cairo_pdf, 
+       dpi = 'retina', width = 5, height = 7, units = "in")
+```
+pairs(emm1, by = "genderid")
+genderid = Male:
+ contrast      estimate      SE  df z.ratio p.value
+ hi Hi - lo Hi -0.01775 0.00520 Inf  -3.416  0.0035
+ hi Hi - hi Lo -0.02340 0.00542 Inf  -4.315  0.0001
+ hi Hi - lo Lo -0.02594 0.00546 Inf  -4.753  <.0001
+ lo Hi - hi Lo -0.00565 0.00428 Inf  -1.320  0.5503
+ lo Hi - lo Lo -0.00819 0.00388 Inf  -2.114  0.1485
+ hi Lo - lo Lo -0.00254 0.00461 Inf  -0.552  0.9461
+
+genderid = Female:
+ contrast      estimate      SE  df z.ratio p.value
+ hi Hi - lo Hi  0.00157 0.00419 Inf   0.374  0.9821
+ hi Hi - hi Lo  0.00390 0.00435 Inf   0.897  0.8065
+ hi Hi - lo Lo -0.00349 0.00439 Inf  -0.795  0.8565
+ lo Hi - hi Lo  0.00234 0.00346 Inf   0.675  0.9066
+ lo Hi - lo Lo -0.00506 0.00308 Inf  -1.643  0.3542
+ hi Lo - lo Lo -0.00739 0.00370 Inf  -1.998  0.1885
+
+Results are averaged over the levels of: alt, rewExpectancy 
+Degrees-of-freedom method: asymptotic 
+P value adjustment: tukey method for comparing a family of 4 estimates 
+
+### Alt by prevRew
+```{r}
+#  prevRew:rewCond:genderid                        1 Inf   6.851  6.851  0.0089
+rt_id_pred6 <- ggemmeans(rt_id_m1, 
+                      terms = c("prevRew", "rewCond", "genderid"), 
+                      type = "fe")
+
+# Create Plots
+p <- ggplot(rt_id_pred6, aes(x = x, y = predicted, color = group, group = group)) +
+  geom_line(size = 1.0, position = position_dodge(.3)) + 
+  geom_point(size = 2, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .2, linewidth = 1.0) +
+  facet_grid(cols = vars(facet)) +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  xlab("Previous Reward Outcome") + ylab("logRT") + 
+  labs(color = "Reward Prospect", subtitle = "Gender") + 
+  scale_color_discrete(type = c("#BD4262", "#4262BD"))
+plot(p)
+ggsave(here("Rdata", "RT_RewTransGender.pdf"), device = cairo_pdf, 
+       dpi = 'retina', width = 5, height = 5, units = "in")
+```
+```{r}
+hypothesis_test(rt_id_pred6)
+```
+
+
+# Accuracy analysis
+
+## ACC by block
+
+```{r Plot RT by block}
+summary_ACCblock <- cleandata.w.demos %>% 
+  filter(!(blockNum == 1 & trialNum < 32)) %>% 
+  group_by(participant, blockNum) %>% 
+  summarise(meanACC = mean(acc, na.rm = TRUE), .groups="keep") %>% 
+  filter(meanACC>.6)
+
+ggplot(data = summary_ACCblock, aes(x=factor(blockNum), y=meanACC, fill=factor(blockNum))) +
+  geom_violin(aes(fill=factor(blockNum)), show.legend = FALSE, alpha = .8) +
+  geom_boxplot(color="Dark Gray", alpha=.4, width=.2, position = position_dodge(.8), show.legend = FALSE) +
+  theme_minimal() + 
+  xlab(label = "Block Number") + ylab(label = "Mean ACC") +
+  scale_fill_manual(values = c("#FDE725FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF"))
+suppressMessages(ggsave(filename = "ACC_block.pdf", device = cairo_pdf, path = here("Rdata")))
+```
+
+Large drop in accuracy at block 2 with more gradual decrease over 8 reward blocks.
+
+```{r Setup data for ACC glmm}
+cleanACCdata <- cleandata.w.demos %>% 
+  filter(E1 == 0) %>% 
+  filter(genderid == "Male" | genderid == "Female") %>% 
+  filter(prevRew == "hi" | prevRew == "lo") %>% 
+  filter(rewExpectancy == "low" | rewExpectancy == "high") %>%
+  filter(!rewCond == "noRew")
+write_rds(cleanACCdata, here("Rdata","acc_data.Rds"))
+summaryACCstats <- cleanACCdata %>% 
+  group_by(participant, genderid, rewExpectancy, rewCond) %>% 
+  filter(genderid == "Male" | genderid == "Female") %>% 
+  summarise(ACC = mean(acc, na.rm = TRUE), .groups = "keep") 
+summaryACCstats %>%  ggplot(aes(x = rewCond, y = ACC, color = genderid)) +
+  ggbeeswarm::geom_quasirandom(alpha = 0.2) +
+  geom_boxplot(fill = "transparent") +
+  facet_row("rewExpectancy") + theme_ggeffects()
+```
+
+## Model Summary
+### Zero-inflated model
+```{r}
+acc_id_m2 <- glmer(formula = acc ~ (alt + prevRew + rewCond + rewExpectancy + genderid)^3 + (1 | participant), data = cleanACCdata, family = binomial(), control=glmerControl(optCtrl=list(optimizer = 'bobyqa', maxfun=1e10)))
+```
+## Accuracy brms model
+```{r}
+library(brms)
+acc_id_b0 <- brm(formula = acc ~ (alt + prevRew + rewCond + rewExpectancy + genderid)^3 + (1 | participant), data = cleanACCdata, family = bernoulli(), chains = 4, cores = 2, warmup = 2000, iter = 8000, backend = "cmdstanr", threads = threading(4), silent = 0, init  = "random")
+acc_id_b1 <- update(acc_id_b0, chains = 4, cores = 2, warmup = 2000, iter = 10000, backend = "cmdstanr", threads = threading(4))
+
+```
+```{r}
+summary(acc_id_b1)
+```
+```{r}
+#                                           Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
+# altswitch:prevRewlo:rewCondLo              -336.96    229.90  -820.04   -14.49 1.47        8       64
+acc_pred1 <- ggemmeans(acc_id_b1, terms = c("alt","prevRew","rewCond"), type = "fe")
+ggplot(acc_pred1, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(linewidth = 1.0, position = position_dodge(.3)) + 
+  geom_point(size = 2, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .2, linewidth = 1.0) +
+  facet_grid(cols = vars(facet)) +
+  xlab("Task Transition") + ylab("logRT") + 
+  labs(color = "Previous\nReward Outcome", subtitle = "Reward Prospect") +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  scale_color_discrete(type = c("#2AD533", "#D5332A"))
+```
+
+
+```{r model acc effects}
+acc_id_m1 <- readRDS(here('Rdata','acc_m1.Rds'))
+acc_summ <- summary(acc_id_m1)
+jt_acc_id <- emmeans::joint_tests(acc_id_m1)
+i <- order(jt_acc_id[,6], decreasing = F)
+jt_acc_id[i, ]
+```
+
+## Plot pairwise
+
+```{r}
+acc_pred1 <- ggemmeans(acc_id_m1, c("alt", "rewExpectancy"))
+acc_pred2 <- ggemmeans(acc_id_m1, "genderid")
+plot(acc_pred1)
+# Create Plot
+ggplot(acc_pred1, aes(x = x, y = predicted, colour = group)) +
+  geom_pointrange(aes(ymin=conf.low, ymax=conf.high), 
+                  position = position_dodge(.05)) + 
+  scale_color_brewer(palette = "Set2") + xlab("Previous Reward") + ylab("Accuracy") + 
+  labs(color = "Current Reward")
+suppressMessages(ggsave("ACC_RewTransExpectancy_plot.pdf", device = cairo_pdf, path = here("Rdata")))
+```
+
+# VSR
+
+## Data preparation
+
+```{r GLMM - VSR by current and previous reward and rewExpectancy}
+# Set contrasts
+cleanChoicedata_noErr <- cleandata.w.demos %>% 
+  filter(prevRew == "hi" | prevRew == "lo") %>% 
+  filter(genderid == "Male" | genderid == "Female") %>% 
+  droplevels()
+cleanChoicedata_noErr$participant <- as.factor(cleanChoicedata_noErr$participant)
+contrasts(cleanChoicedata_noErr$alt) <- contr.sum(2)
+contrasts(cleanChoicedata_noErr$genderid) <- contr.sum(2)
+contrasts(cleanChoicedata_noErr$rewExpectancy) <- contr.sum(2)
+contrasts(cleanChoicedata_noErr$prevRew) <- contr.sum(2)
+contrasts(cleanChoicedata_noErr$rewCond) <- contr.sum(2)
+write_rds(cleanChoicedata_noErr, here('Rdata','choice_noErr_data.Rds'))
+```
+
+```{r Summary VSR by Prev and Curr Reward}
+summary_VSR_Rew <- cleanChoicedata_noErr %>%
+  group_by(participant, genderid, prevRew, rewExpectancy, alt) %>% 
+  filter(!is.na(alt)) %>% 
+  summarise(n = n(), .groups = "drop_last") %>%
+  ungroup() %>% 
+  complete(nesting(participant, rewExpectancy), prevRew, alt, fill = list(n = 0)) %>% 
+  group_by(participant, genderid, rewExpectancy, prevRew) %>%
+  summarise(VSR = n[alt=="switch"]/sum(n), count=sum(n), .groups = "keep")
+
+summary_VSR_Rew %>% ungroup() %>% 
+  ggplot(aes(x = prevRew, y = VSR, color = genderid)) +
+  ggbeeswarm::geom_quasirandom(alpha = 0.3) +
+  geom_boxplot(fill = "transparent") +
+  theme_ggeffects()
+```
+
+## Model Summary
+───────────────────────────────────────────────────
+     model-dof    deviance       χ²  χ²-dof  P(>χ²)
+───────────────────────────────────────────────────
+[1]         65  34441.6984
+[2]         70  34402.5301  39.1683       5  <1e-06
+───────────────────────────────────────────────────
+```{r}
+choice_id_m1 <- read_rds(here("Rdata","choice_id_m3.Rds"))
+summ_choice <- summary(choice_id_m1)
+
+#i <- order(coef_choice[,4], decreasing = TRUE)
+#coef_choice[i, ]
+jt_choice_id <- emmeans::joint_tests(choice_id_m1)
+i <- order(jt_choice_id[,6], decreasing = F)
+head(jt_choice_id[i, ], 8)
+```
+
+## Plot results
+
+### Transition by Probability by bas
+
+```{r}
+#   rewCond:prevRew:rewExpectancy:basrrC   1 Inf  16.156 16.156  0.0001
+
+choice_id_pred1 <- ggemmeans(choice_id_m1, 
+                             terms = c("basrrC", "rewCond", "prevRew", "rewExpectancy"),
+                             type = "fe")
+
+choice_id_pred1$panel <- factor(choice_id_pred1$panel, levels = c("high", "low"),
+                   labels = c("80:20", "60:40"))
+
+p <- ggplot(choice_id_pred1, aes(x = x, y = predicted)) +
+  geom_ribbon(aes(ymin=conf.low, ymax=conf.high, fill=group), 
+              alpha=0.2, show.legend = FALSE) +
+  geom_smooth(aes(y=predicted, color=group), linewidth=1.5) +
+  facet_grid(rows = vars(facet), cols = vars(panel)) +
+  xlab("BAS-Reward Responsiveness") + ylab("Switch Probability") + 
+  labs(color = "Reward Prospect", subtitle = "Reward Probability") +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  guides(y.sec = guide_none("Prev. Rew Outcome")) +
+  scale_y_continuous(limits = c(.05, .67), breaks = seq(.05,.65,.15), 
+                     labels = c(".05",".20",".35", ".50", ".65")) +
+  scale_color_discrete(type = c("#37C8C8", "#D728A9")) +
+  scale_fill_discrete(type = c("#37C8C8", "#D728A9"))
+plot(p)
+ggsave(here("Rdata", "Choice_BAS-Trans-Prob.pdf"), 
+                        device = cairo_pdf, dpi = 'retina', limitsize = FALSE, 
+                        width = 6, height = 8, units = "in")
+```
+```{r}
+marginaleffects::avg_slopes(rt_id_m1, variables = "basrrC", by = c("prevRew", "rewCond", "rewExpectancy"))
+```
+### Reward Trans by Prob
+
+```{r}
+#  rewCond:prevRew:rewExpectancy          1 Inf   7.273  7.273  0.0070
+choice_id_pred2 <- ggemmeans(choice_id_m1, 
+                             terms = c("prevRew", "rewCond", "rewExpectancy"),
+                             type = "fe")
+
+choice_id_pred2$facet <- factor(choice_id_pred2$facet, levels = c("high", "low"),
+                   labels = c("80% Valid", "60% Valid"))
+
+p <- ggplot(choice_id_pred2, aes(x = x, y = predicted, group = group, color = group)) +
+  geom_line(linewidth = 1.0, position = position_dodge(.2)) + 
+  geom_point(size = 2, position = position_dodge(.2)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.2), width = .2, linewidth = 1.0) +
+  facet_grid(rows = vars(facet)) +
+  xlab("Previous Reward Outcome") + ylab("Switch Probability") + 
+  labs(color = "Reward\nProspect", subtitle = "") +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  scale_y_continuous(limits = c(.2, .4), breaks = seq(.2,.4,.1), 
+                     labels = c(".2",".3", ".4"))
+set_palette(p=p, palette = "Dark2")
+ggsave(here("Rdata", "Choice_Trans-Prob.pdf"), 
+                        device = cairo_pdf, dpi = 'retina', limitsize = FALSE, 
+                        width = 5, height = 7, units = "in")
+```
+
+```{r}
+hypothesis_test(choice_id_pred2)
+```
+
+### RewTrans by BIS
+
+```{r}
+#   rewCond:prevRew:bisC                   1 Inf   5.528  5.528  0.0187
+choice_id_pred3 <- ggemmeans(choice_id_m1, 
+                          terms = c("prevRew", "rewCond", "bisC"),
+                          type = "fe")
+choice_id_pred3$facet <- factor(choice_id_pred3$facet, levels = c(-3.56, 0.12, 3.79), 
+
+                                labels = c("-1SD", "Mean", "+1SD"))
+p <- ggplot(choice_id_pred3, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(size = 1.0, position = position_dodge(.2)) + 
+  geom_point(size = 3, position = position_dodge(.2)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.2), width = .3, linewidth = 1.5) +
+  facet_grid(cols = vars(facet)) +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  xlab("Previous Reward Outcome") + ylab("Switch Probability") + 
+  labs(color = "Reward Prospect", subtitle = "BIS")
+set_palette(p=p, palette = "simpsons")
+ggsave(here("Rdata", "Choice_RewTransBIS.pdf"), device = cairo_pdf, 
+       dpi = 'retina', limitsize = FALSE,
+       width = 6, height = 5, units = "in")
+```
+
+```{r}
+emm1 <- emmeans::emmeans(choice_id_m1, specs = c("prevRew", "rewCond"))
+pairs(emm1)
+```
+hiHi has less switching compared to other transitions
+
+### RewTrans by BAS-RR
+
+```{r}
+#    rewCond:prevRew:basrrC                 1 Inf  10.417 10.417  0.0012
+choice_id_pred4 <- ggemmeans(choice_id_m1, 
+                          terms = c("prevRew", "rewCond", "basrrC"),
+                          type = "fe")
+choice_id_pred4$facet <- factor(choice_id_pred4$facet, levels = c(-1.79, 0.08, 1.95), 
+                                labels = c("-1SD", "Mean", "+1SD"))
+
+p <- ggplot(choice_id_pred4, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(size = 1.0, position = position_dodge(.2)) + 
+  geom_point(size = 3, position = position_dodge(.2)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.2), width = .3, linewidth = 1.5) +
+  facet_grid(cols = vars(facet)) +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  xlab("Previous Reward Outcome") + ylab("Switch Probability") + 
+  labs(color = "Reward Prospect", subtitle = "BAS-Reward Responsiveness") +
+  scale_color_discrete(type = c("#EA15D9", "#15EA26"))
+plot(p)
+ggsave(here("Rdata", "Choice_RewTransBAS.pdf"), device = cairo_pdf, 
+       dpi = 'retina', limitsize = FALSE,
+       width = 6, height = 5, units = "in")
+```
