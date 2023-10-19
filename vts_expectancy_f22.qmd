@@ -28,9 +28,14 @@ library(ggforce)
 library(ggpubr)
 library(JuliaCall)
 library(lme4)
+library(brms)
+library(cmdstanr)
+library(report)
 library(ggeffects)
 library(ggbeeswarm)
 library(ggplot2)
+library(scico)
+library(marginaleffects)
 library(viridis)
 library(RColorBrewer)
 library(xtable)
@@ -177,12 +182,12 @@ Online_TOKEN = "8092328E3AA4D7901F5341ADA9DD1177"
 Inlab_TOKEN = "A171103888A7D82C027463ACE9957867"
 URL = "https://redcap.tamhsc.edu/api/"
 rcon <- redcapConnection(url=URL, token=Online_TOKEN)
-df_redcap_online <- exportRecords(rcon)
+df_redcap_online <- exportRecordsTyped(rcon)
 df_redcap_online <- df_redcap_online %>% 
   filter(consent_timestamp >= "2022-11-13")
 
 rcon <- redcapConnection(url=URL, token=Inlab_TOKEN)
-df_redcap_inlab <- exportRecords(rcon)
+df_redcap_inlab <- exportRecordsTyped(rcon)
 df_redcap_inlab <- df_redcap_inlab %>% 
   filter(consent_timestamp >= "2022-10-25")
 
@@ -193,7 +198,10 @@ demos_online <- df_redcap_online %>%
          'bis1', 'bis2', 'bis3', 'bis4', 'bis5', 'bis6', 'bis7', 
          'bas_rr1', 'bas_rr2', 'bas_rr3', 'bas_rr4', 'bas_rr5',
          "bas_fun1", "bas_fun2", "bas_fun3", "bas_fun4",
-         "bas_drive1", "bas_drive2", "bas_drive3", "bas_drive4")
+         "bas_drive1", "bas_drive2", "bas_drive3", "bas_drive4",
+         "promis_bank_v10_alcohol_alcohol_use_tscore", "ftcd_score",
+         "promis_bank_v10_ecigarette_nicotine_dependence_tscore",
+         "promis_sf_v10_severity_of_sub_use_past_3_mo_7a_tscore")
 demos_online$sona_id <- as.numeric(demos_online$sona_id)
 demos_online <- demos_online %>% 
   group_by(sona_id) %>% 
@@ -208,7 +216,10 @@ demos_inlab <- df_redcap_inlab %>%
          'bis1', 'bis2', 'bis3', 'bis4', 'bis5', 'bis6', 'bis7', 
          'bas_rr1', 'bas_rr2', 'bas_rr3', 'bas_rr4', 'bas_rr5',
          "bas_fun1", "bas_fun2", "bas_fun3", "bas_fun4",
-         "bas_drive1", "bas_drive2", "bas_drive3", "bas_drive4")
+         "bas_drive1", "bas_drive2", "bas_drive3", "bas_drive4",
+         "promis_bank_v10_alcohol_alcohol_use_tscore", "ftcd_score",
+         "promis_bank_v10_ecigarette_nicotine_dependence_tscore",
+         "promis_sf_v10_severity_of_sub_use_past_3_mo_7a_tscore")
 demos_inlab$sona_id <- as.numeric(demos_inlab$sona_id)
 # df_redcap_inlab$sona_id[159] = "69140_2"
 # df_redcap_inlab$sona_id[225] = "98412_2"
@@ -304,34 +315,22 @@ center_scale <- function(x) {
 
 ## Convert substance use measures
 
-*These haven't been coded for REDcap yet*
-
-```{r Convert substance use measures, eval=FALSE}
-# Convert substance use
+```{r Convert substance use measures}
 participant_demos <- participant_demos %>% 
-  mutate(Tobacco_Freq = case_when(Tobacco_Freq == "Frequently (> 5 a day)" ~ 5,
-                        Tobacco_Freq == "Daily (< 5 a day)" ~ 4,
-                        Tobacco_Freq == "Occasionally (3-4 a week)" ~ 3,
-                        Tobacco_Freq == "Rarely (~1 a week)" ~ 2,
-                        Tobacco_Freq == "Never" ~ 1)) %>% 
-  mutate(AlcoholFreq = case_when(AlcoholFreq == "More than 5 times a week" ~ 5,
-                                 AlcoholFreq == "2-3 times a week" ~ 4,
-                                 AlcoholFreq == "1-2 times a week" ~ 3,
-                                 AlcoholFreq == "Only occasionally" ~ 2,
-                                 AlcoholFreq == "Never" ~ 1)) %>% 
-  mutate(AlcoholQuant = case_when(AlcoholQuant == "More than 5 drinks" ~ 5,
-                                  AlcoholQuant == "3-5 drinks" ~ 4,
-                                  AlcoholQuant == "1-2 drinks" ~ 3,
-                                  AlcoholQuant == "Only occasionally" ~ 2,
-                                  AlcoholQuant == "Never" ~ 1)) %>% 
-  mutate(DrugsFreq = case_when(DrugsFreq == "Daily" ~ 5,
-                               DrugsFreq == "3-5 times a week" ~ 4,
-                               DrugsFreq == "1-2 times a week" ~ 3,
-                               DrugsFreq == "Only occasionally" ~ 2,
-                               DrugsFreq == "Never" ~ 1))
+  rename(alc_use = promis_bank_v10_alcohol_alcohol_use_tscore) %>% 
+  rename(ecig_dep = promis_bank_v10_ecigarette_nicotine_dependence_tscore) %>% 
+  rename(subabuse = promis_sf_v10_severity_of_sub_use_past_3_mo_7a_tscore)
+participant_demos$alc_use[is.na(participant_demos$alc_use)] <- 0
+participant_demos$ecig_dep[is.na(participant_demos$ecig_dep)] <- 0
+participant_demos$ftcd_score[is.na(participant_demos$ftcd_score)] <- 0
+participant_demos$subabuse[is.na(participant_demos$subabuse)] <- 0
 ```
 
 ```{r}
+participant_demos <- participant_demos %>% 
+  select("sona_id", "genderid", "age", "colorblind", "education", 
+         "alc_use", "ftcd_score", "ecig_dep", "subabuse",
+         "race", "bas_rr", "bas_fun", "bas_drive", "bas", "bis")   
 median(participant_demos$age, na.rm = TRUE)
 sd(participant_demos$age, na.rm = TRUE)
 
@@ -409,7 +408,7 @@ summary_ACC %>%
              aes(xintercept=median(ACC)), color="blue", linetype="dashed", linewidth=1) +
   geom_vline(data = filter(summary_ACC, rewExpectancy=="low"),
              aes(xintercept=median(ACC)), color="red", linetype="dashed", linewidth=1) +
-  scale_x_continuous(name="Accuracy", breaks = seq(0, 1, .05)) +
+  scale_x_continuous(name="Accuracy", breaks = seq(0, 1, .1)) +
   scale_y_continuous(name = "Count", breaks = seq(0,70,10))
 ```
 
@@ -593,6 +592,7 @@ included_subjs <- cleandata.w.demos %>% group_by(participant) %>% summarise(n=n(
 ```{r}
 summary(final_demos)
 ```
+
 ```{r}
 ggplot(final_demos, aes(x = bisC, y = basrrC)) +
   geom_point(position = position_jitter(width = 0.5, height = 0.5)) + 
@@ -600,7 +600,11 @@ ggplot(final_demos, aes(x = bisC, y = basrrC)) +
 BISBAS <- final_demos[c("bis","bas_fun","bas_drive", "bas_rr")]
 BISBAS <- BISBAS[complete.cases(BISBAS), ]
 cor_mat(BISBAS)
+
+covars <- final_demos[c("bis", "bas_rr", "alc_use", "ftcd_score", "ecig_dep", "subabuse")]
+cor_mat(covars)
 ```
+
 ```{r}
 write.csv(final_demos, here("Rdata","final_demos_050223.csv"))
 ```
@@ -812,8 +816,8 @@ ggsave(here("Rdata", "RT_RewCondProbBAS.pdf"), device = cairo_pdf,
 hypothesis_test(rt_id_m1, c("basrrC", "rewCond",  "rewExpectancy"), test = NULL)
 hypothesis_test(rt_id_m1, c("basrrC", "rewCond",  "rewExpectancy"))
 ```
-Significant difference in bas slope between Hi&Lo only at 80:20
-### rewCond by Probability
+
+Significant difference in bas slope between Hi&Lo only at 80:20 \### rewCond by Probability
 
 ```{r}
 # rewCond:rewExpectancy
@@ -841,6 +845,7 @@ ggsave(here("Rdata", "RT_RewCondProb.pdf"), device = cairo_pdf,
 ```{r}
 hypothesis_test(rt_id_m1, c("rewCond",  "rewExpectancy"))
 ```
+
 Hi-Lo for rewExpectancy
 
 ### Alt by Reward and Gender
@@ -873,9 +878,8 @@ ggsave(here("Rdata", "RT_RewAltGender.pdf"), device = cairo_pdf,
 ```{r}
 hypothesis_test(rt_id_m1, terms = c("rewCond", "alt", "genderid"))
 ```
-Females: Sig. SC at Hi, Alt x Rew Int
-Gender SC diff at Hi
-Males: Hi-Lo diff for repeats, Alt X Rew int
+
+Females: Sig. SC at Hi, Alt x Rew Int Gender SC diff at Hi Males: Hi-Lo diff for repeats, Alt X Rew int
 
 ### Alt by Reward, bis, bas
 
@@ -974,30 +978,15 @@ plot(p)
 ggsave(here("Rdata", "RT_RewTrans_GenderBIS.pdf"), device = cairo_pdf, 
        dpi = 'retina', width = 5, height = 7, units = "in")
 ```
-pairs(emm1, by = "genderid")
-genderid = Male:
- contrast      estimate      SE  df z.ratio p.value
- hi Hi - lo Hi -0.01775 0.00520 Inf  -3.416  0.0035
- hi Hi - hi Lo -0.02340 0.00542 Inf  -4.315  0.0001
- hi Hi - lo Lo -0.02594 0.00546 Inf  -4.753  <.0001
- lo Hi - hi Lo -0.00565 0.00428 Inf  -1.320  0.5503
- lo Hi - lo Lo -0.00819 0.00388 Inf  -2.114  0.1485
- hi Lo - lo Lo -0.00254 0.00461 Inf  -0.552  0.9461
 
-genderid = Female:
- contrast      estimate      SE  df z.ratio p.value
- hi Hi - lo Hi  0.00157 0.00419 Inf   0.374  0.9821
- hi Hi - hi Lo  0.00390 0.00435 Inf   0.897  0.8065
- hi Hi - lo Lo -0.00349 0.00439 Inf  -0.795  0.8565
- lo Hi - hi Lo  0.00234 0.00346 Inf   0.675  0.9066
- lo Hi - lo Lo -0.00506 0.00308 Inf  -1.643  0.3542
- hi Lo - lo Lo -0.00739 0.00370 Inf  -1.998  0.1885
+pairs(emm1, by = "genderid") genderid = Male: contrast estimate SE df z.ratio p.value hi Hi - lo Hi -0.01775 0.00520 Inf -3.416 0.0035 hi Hi - hi Lo -0.02340 0.00542 Inf -4.315 0.0001 hi Hi - lo Lo -0.02594 0.00546 Inf -4.753 \<.0001 lo Hi - hi Lo -0.00565 0.00428 Inf -1.320 0.5503 lo Hi - lo Lo -0.00819 0.00388 Inf -2.114 0.1485 hi Lo - lo Lo -0.00254 0.00461 Inf -0.552 0.9461
 
-Results are averaged over the levels of: alt, rewExpectancy 
-Degrees-of-freedom method: asymptotic 
-P value adjustment: tukey method for comparing a family of 4 estimates 
+genderid = Female: contrast estimate SE df z.ratio p.value hi Hi - lo Hi 0.00157 0.00419 Inf 0.374 0.9821 hi Hi - hi Lo 0.00390 0.00435 Inf 0.897 0.8065 hi Hi - lo Lo -0.00349 0.00439 Inf -0.795 0.8565 lo Hi - hi Lo 0.00234 0.00346 Inf 0.675 0.9066 lo Hi - lo Lo -0.00506 0.00308 Inf -1.643 0.3542 hi Lo - lo Lo -0.00739 0.00370 Inf -1.998 0.1885
+
+Results are averaged over the levels of: alt, rewExpectancy Degrees-of-freedom method: asymptotic P value adjustment: tukey method for comparing a family of 4 estimates
 
 ### Alt by prevRew
+
 ```{r}
 #  prevRew:rewCond:genderid                        1 Inf   6.851  6.851  0.0089
 rt_id_pred6 <- ggemmeans(rt_id_m1, 
@@ -1019,10 +1008,10 @@ plot(p)
 ggsave(here("Rdata", "RT_RewTransGender.pdf"), device = cairo_pdf, 
        dpi = 'retina', width = 5, height = 5, units = "in")
 ```
+
 ```{r}
 hypothesis_test(rt_id_pred6)
 ```
-
 
 # Accuracy analysis
 
@@ -1065,20 +1054,26 @@ summaryACCstats %>%  ggplot(aes(x = rewCond, y = ACC, color = genderid)) +
 ```
 
 ## Model Summary
+
 ### Zero-inflated model
+
 ```{r}
 acc_id_m2 <- glmer(formula = acc ~ (alt + prevRew + rewCond + rewExpectancy + genderid)^3 + (1 | participant), data = cleanACCdata, family = binomial(), control=glmerControl(optCtrl=list(optimizer = 'bobyqa', maxfun=1e10)))
 ```
+
 ## Accuracy brms model
+
 ```{r}
 library(brms)
 acc_id_b0 <- brm(formula = acc ~ (alt + prevRew + rewCond + rewExpectancy + genderid)^3 + (1 | participant), data = cleanACCdata, family = bernoulli(), chains = 4, cores = 2, warmup = 2000, iter = 8000, backend = "cmdstanr", threads = threading(4), silent = 0, init  = "random")
 acc_id_b1 <- update(acc_id_b0, chains = 4, cores = 2, warmup = 2000, iter = 10000, backend = "cmdstanr", threads = threading(4))
 
 ```
+
 ```{r}
 summary(acc_id_b1)
 ```
+
 ```{r}
 #                                           Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
 # altswitch:prevRewlo:rewCondLo              -336.96    229.90  -820.04   -14.49 1.47        8       64
@@ -1094,7 +1089,6 @@ ggplot(acc_pred1, aes(x = x, y = predicted, color = group, group=group)) +
   theme(legend.position = "bottom", legend.direction = "horizontal") +
   scale_color_discrete(type = c("#2AD533", "#D5332A"))
 ```
-
 
 ```{r model acc effects}
 acc_id_m1 <- readRDS(here('Rdata','acc_m1.Rds'))
@@ -1156,12 +1150,9 @@ summary_VSR_Rew %>% ungroup() %>%
 ```
 
 ## Model Summary
-───────────────────────────────────────────────────
-     model-dof    deviance       χ²  χ²-dof  P(>χ²)
-───────────────────────────────────────────────────
-[1]         65  34441.6984
-[2]         70  34402.5301  39.1683       5  <1e-06
-───────────────────────────────────────────────────
+
+─────────────────────────────────────────────────── model-dof deviance χ² χ²-dof P(\>χ²) ─────────────────────────────────────────────────── \[1\] 65 34441.6984 \[2\] 70 34402.5301 39.1683 5 \<1e-06 ───────────────────────────────────────────────────
+
 ```{r}
 choice_id_m1 <- read_rds(here("Rdata","choice_id_m3.Rds"))
 summ_choice <- summary(choice_id_m1)
@@ -1181,12 +1172,35 @@ head(jt_choice_id[i, ], 8)
 #   rewCond:prevRew:rewExpectancy:basrrC   1 Inf  16.156 16.156  0.0001
 
 choice_id_pred1 <- ggemmeans(choice_id_m1, 
-                             terms = c("basrrC", "rewCond", "prevRew", "rewExpectancy"),
+                             terms = c("rewCond", "prevRew", "basrrC", "rewExpectancy"),
                              type = "fe")
 
 choice_id_pred1$panel <- factor(choice_id_pred1$panel, levels = c("high", "low"),
-                   labels = c("80:20", "60:40"))
+                                labels = c("80:20", "60:40"))
+choice_id_pred1$facet <- factor(choice_id_pred1$facet, levels = c(-1.79, 0.08, 1.95), 
+                                labels = c("-1SD", "Mean", "+1SD"))
 
+choice_id_pred1 <- choice_id_pred1 %>% 
+  filter(!facet == "Mean")
+
+# Figure with levels of bas (2 levels)
+p <- ggplot(choice_id_pred1, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(size = 1.0, position = position_dodge(.3)) + 
+  geom_point(size = 2, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .2, linewidth = 1.0) +
+  facet_grid(cols = vars(facet), rows = vars(panel)) +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  guides(y.sec = guide_none("Reward Expectancy")) +
+  xlab("Previous Reward Outcome") + ylab("Switch Probability") + 
+  labs(color = "Reward Prospect", subtitle = "BAS-Reward Responsiveness") +
+  scale_color_discrete(type = c("#37C8C8", "#D728A9"))
+plot(p)
+ggsave(here("Rdata", "Choice_BAS2-Trans-Prob.pdf"), 
+                        device = cairo_pdf, dpi = 'retina', limitsize = FALSE, 
+                        width = 6, height = 7, units = "in")
+
+# Figure with continuous bas
 p <- ggplot(choice_id_pred1, aes(x = x, y = predicted)) +
   geom_ribbon(aes(ymin=conf.low, ymax=conf.high, fill=group), 
               alpha=0.2, show.legend = FALSE) +
@@ -1201,13 +1215,15 @@ p <- ggplot(choice_id_pred1, aes(x = x, y = predicted)) +
   scale_color_discrete(type = c("#37C8C8", "#D728A9")) +
   scale_fill_discrete(type = c("#37C8C8", "#D728A9"))
 plot(p)
-ggsave(here("Rdata", "Choice_BAS-Trans-Prob.pdf"), 
+ggsave(here("Rdata", "Choice_BAScont-Trans-Prob.pdf"), 
                         device = cairo_pdf, dpi = 'retina', limitsize = FALSE, 
                         width = 6, height = 8, units = "in")
 ```
+
 ```{r}
 marginaleffects::avg_slopes(rt_id_m1, variables = "basrrC", by = c("prevRew", "rewCond", "rewExpectancy"))
 ```
+
 ### Reward Trans by Prob
 
 ```{r}
@@ -1269,6 +1285,7 @@ ggsave(here("Rdata", "Choice_RewTransBIS.pdf"), device = cairo_pdf,
 emm1 <- emmeans::emmeans(choice_id_m1, specs = c("prevRew", "rewCond"))
 pairs(emm1)
 ```
+
 hiHi has less switching compared to other transitions
 
 ### RewTrans by BAS-RR
