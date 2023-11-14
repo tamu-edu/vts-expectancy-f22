@@ -29,7 +29,6 @@ library(ggpubr)
 library(JuliaCall)
 library(lme4)
 library(brms)
-library(cmdstanr)
 library(report)
 library(ggeffects)
 library(ggbeeswarm)
@@ -166,6 +165,20 @@ fulldata <- relocate(fulldata, prevRew, .before = rewCond)
 fulldata$prevRew <- as.factor(fulldata$prevRew)
 fulldata$prevRew <- factor(fulldata$prevRew, levels = c("hi", "lo", "hi-", "lo+", 
                                                         "hi0", "error")) 
+
+# Reward Transition
+fulldata <- fulldata %>% 
+  mutate(rewTrans = case_when(trialNum>0 & rewCond=="Lo" & 
+                                prevRew=="lo" ~ "remainLo",
+                              trialNum>0 & rewCond=="Hi" & 
+                                prevRew=="hi" ~ "remainHi",
+                              trialNum>0 & rewCond=="Hi" & 
+                                prevRew=="lo" ~ "increase",
+                              trialNum>0 & rewCond=="Lo" & 
+                                prevRew=="hi" ~ "decrease"))
+fulldata$rewTrans <- as.factor(fulldata$rewTrans)
+# Set remainHi to reference level
+fulldata$rewTrans <- relevel(fulldata$rewTrans, "remainHi")
 
 # Recode as factors
 fulldata$alt <- as.factor(fulldata$alt)
@@ -309,7 +322,7 @@ participant_demos <- participant_demos %>%
 
 # Define function for center scaling measures
 center_scale <- function(x) {
-    as.double(scale(x, scale = FALSE))
+    as.double(scale(x, scale = TRUE))
 }
 ```
 
@@ -1127,9 +1140,25 @@ cleanChoicedata_noErr$participant <- as.factor(cleanChoicedata_noErr$participant
 contrasts(cleanChoicedata_noErr$alt) <- contr.sum(2)
 contrasts(cleanChoicedata_noErr$genderid) <- contr.sum(2)
 contrasts(cleanChoicedata_noErr$rewExpectancy) <- contr.sum(2)
+contrasts(cleanChoicedata_noErr$rewTrans) <- contr.sum(4)
 contrasts(cleanChoicedata_noErr$prevRew) <- contr.sum(2)
 contrasts(cleanChoicedata_noErr$rewCond) <- contr.sum(2)
 write_rds(cleanChoicedata_noErr, here('Rdata','choice_noErr_data.Rds'))
+```
+
+```{r}
+# Set contrasts
+cleanChoicedata_outcomes <- cleandata.w.demos %>% 
+  filter(!is.na("alt")) %>% 
+  filter(!is.na("prevRew")) %>% 
+  filter(!rewCond == "noRew") %>% 
+  filter(acc == 1) %>% 
+  droplevels()
+
+contrasts(cleanChoicedata_outcomes$rewCond) <- contr.sum(2)
+contrasts(cleanChoicedata_outcomes$prevRew) <- contr.sum(6)
+contrasts(cleanChoicedata_outcomes$rewExpectancy) <- contr.sum(2)
+write_rds(cleanChoicedata_outcomes, file = here('Rdata','choiceData_outcomes.Rds'))
 ```
 
 ```{r Summary VSR by Prev and Curr Reward}
@@ -1253,7 +1282,7 @@ ggsave(here("Rdata", "Choice_Trans-Prob.pdf"),
 ```
 
 ```{r}
-hypothesis_test(choice_id_pred2)
+choice_id_pred2 <- emmeans::comb_facs(object = choice_id_pred2, c("prevRew", "rewCond"), newname = "Reward Transition")
 ```
 
 ### RewTrans by BIS
