@@ -6,7 +6,7 @@ format:
   pdf:
     knitr:
       opts_chunk:
-        dev: "cairo_pdf"
+        dev: ""png""
   # For Cairo
   docx:
     knitr:
@@ -615,7 +615,7 @@ BISBAS <- BISBAS[complete.cases(BISBAS), ]
 cor_mat(BISBAS)
 
 covars <- final_demos[c("bis", "bas_rr", "alc_use", "ftcd_score", "ecig_dep", "subabuse")]
-cor_mat(covars)
+knitr::kable(cor_mat(covars))
 ```
 
 ```{r}
@@ -639,7 +639,7 @@ ggplot(data = summary_corrRT, aes(x=factor(blockNum), y=meanRT, fill=factor(bloc
   theme_minimal() + scale_y_continuous(breaks = seq(200,3000,500)) +
   xlab(label = "Block Number") + ylab(label = "Mean RT") +
   scale_fill_manual(values = c("#FDE725FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF"))
-ggsave(filename = "RT_block.pdf", device = cairo_pdf, path = here("Rdata"))
+ggsave(filename = "RT_block.png", device = "png", path = here("Rdata"))
 ```
 
 There is a large drop in RT as reward is introduced (even when just including second half of block 1). The last block has more outliers than preceding blocks.
@@ -742,7 +742,7 @@ p <- ggplot(rt_id_pred1, aes(x = x, y = predicted, color = group, group=group)) 
                      breaks = seq(2.65,2.9,.1), 
                      labels = c("2.65","2.75","2.85"))
 plot(p)
-ggsave(here("Rdata", "RT_BIS_RewProbGender.pdf"), device = cairo_pdf, 
+ggsave(here("Rdata", "RT_BIS_RewProbGender.png"), device = "png", 
        dpi = 'retina', width = 5, height = 7, units = "in")
 ```
 
@@ -771,7 +771,7 @@ p1 <- ggplot(rt_id_pred1a, aes(x = x, y = predicted)) +
   scale_color_discrete(type = c("#2AD533", "#D5332A")) +
   scale_fill_discrete(type = c("#2AD533", "#D5332A"))
 plot(p1)
-ggsave(here("Rdata", "RT_BIS_RewProb-Male.pdf"), device = cairo_pdf, 
+ggsave(here("Rdata", "RT_BIS_RewProb-Male.png"), device = "png", 
        dpi = 'retina', width = 5, height = 7, units = "in")
 
 p2 <- ggplot(rt_id_pred1b, aes(x = x, y = predicted)) +
@@ -786,7 +786,7 @@ p2 <- ggplot(rt_id_pred1b, aes(x = x, y = predicted)) +
   scale_color_discrete(type = c("#2AD533", "#D5332A")) +
   scale_fill_discrete(type = c("#2AD533", "#D5332A"))
 plot(p2)
-ggsave(here("Rdata", "RT_BIS_RewProb-Female.pdf"), device = cairo_pdf, 
+ggsave(here("Rdata", "RT_BIS_RewProb-Female.png"), device = "png", 
        dpi = 'retina', width = 5, height = 7, units = "in")
 ```
 
@@ -821,7 +821,7 @@ p <- ggplot(rt_id_pred2, aes(x = x, y = predicted)) +
   theme(legend.position = "bottom", legend.direction = "horizontal") +
   scale_y_continuous(limits = c(2.7,2.9), breaks = seq(2.7,2.9,.1), labels = c("2.7","2.8", "2.9"))
 set_palette(p=p, palette = "Set1")
-ggsave(here("Rdata", "RT_RewCondProbBAS.pdf"), device = cairo_pdf, 
+ggsave(here("Rdata", "RT_RewCondProbBAS.png"), device = "png", 
        dpi = 'retina', width = 7, height = 5, units = "in")
 ```
 
@@ -851,7 +851,7 @@ p <- ggplot(rt_id_pred2b, aes(x = x, y = predicted, color = group, group = group
   theme(legend.position = "bottom", legend.direction = "horizontal") + 
   scale_color_discrete(type = c("#1944E6", "#E6BB19"))
 plot(p)
-ggsave(here("Rdata", "RT_RewCondProb.pdf"), device = cairo_pdf, 
+ggsave(here("Rdata", "RT_RewCondProb.png"), device = "png", 
        dpi = 'retina', width = 6, height = 5, units = "in")
 ```
 
@@ -884,7 +884,7 @@ p <- ggplot(rt_id_pred3, aes(x = x, y = predicted, color = group, group = group)
   scale_y_continuous(limits = c(2.74,2.85), breaks = c(2.75, 2.8, 2.85), 
                      labels = c("2.75","2.8","2.85"))
 set_palette(p=p, palette = "Set2")
-ggsave(here("Rdata", "RT_RewAltGender.pdf"), device = cairo_pdf, 
+ggsave(here("Rdata", "RT_RewAltGender.png"), device = "png", 
        dpi = 'retina', width = 6, height = 5, units = "in")
 ```
 
@@ -926,7 +926,7 @@ p <- ggplot(rt_id_pred4, aes(x = x, y = predicted, color = group, group = group)
   scale_y_continuous(limits = c(2.72,2.86), breaks = c(2.75,2.8,2.85), 
                      labels = c("2.75","2.8","2.85"))
 plot(p)
-ggsave(here("Rdata", "RT_AltRewBISBAS.pdf"), device = cairo_pdf, 
+ggsave(here("Rdata", "RT_AltRewBISBAS.png"), device = "png", 
        dpi = 'retina', width = 6, height = 8, units = "in")
 ```
 
@@ -957,7 +957,7 @@ p <- ggplot(rt_id_pred4a, aes(x = x, y = predicted)) +
   scale_color_discrete(type = c("#4426D9", "#BBD926")) +
   scale_fill_discrete(type = c("#4426D9", "#BBD926"))
 plot(p)
-ggsave(here("Rdata", "RT_AltRewBISBAS_alt.pdf"), device = cairo_pdf, 
+ggsave(here("Rdata", "RT_AltRewBISBAS_alt.png"), device = "png", 
        dpi = 'retina', width = 6, height = 8, units = "in")
 ```
 
@@ -988,7 +988,7 @@ p <- ggplot(rt_id_pred5, aes(x = x, y = predicted, color = group, group = group)
                      breaks = seq(2.75,2.85,.1), 
                      labels = c("2.75","2.85"))
 plot(p)
-ggsave(here("Rdata", "RT_RewTrans_GenderBIS.pdf"), device = cairo_pdf, 
+ggsave(here("Rdata", "RT_RewTrans_GenderBIS.png"), device = "png", 
        dpi = 'retina', width = 5, height = 7, units = "in")
 ```
 
@@ -1018,7 +1018,7 @@ p <- ggplot(rt_id_pred6, aes(x = x, y = predicted, color = group, group = group)
   labs(color = "Reward Prospect", subtitle = "Gender") + 
   scale_color_discrete(type = c("#BD4262", "#4262BD"))
 plot(p)
-ggsave(here("Rdata", "RT_RewTransGender.pdf"), device = cairo_pdf, 
+ggsave(here("Rdata", "RT_RewTransGender.png"), device = "png", 
        dpi = 'retina', width = 5, height = 5, units = "in")
 ```
 
@@ -1043,7 +1043,7 @@ ggplot(data = summary_ACCblock, aes(x=factor(blockNum), y=meanACC, fill=factor(b
   theme_minimal() + 
   xlab(label = "Block Number") + ylab(label = "Mean ACC") +
   scale_fill_manual(values = c("#FDE725FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF"))
-suppressMessages(ggsave(filename = "ACC_block.pdf", device = cairo_pdf, path = here("Rdata")))
+suppressMessages(ggsave(filename = "ACC_block.png", device = "png", path = here("Rdata")))
 ```
 
 Large drop in accuracy at block 2 with more gradual decrease over 8 reward blocks.
@@ -1123,7 +1123,7 @@ ggplot(acc_pred1, aes(x = x, y = predicted, colour = group)) +
                   position = position_dodge(.05)) + 
   scale_color_brewer(palette = "Set2") + xlab("Previous Reward") + ylab("Accuracy") + 
   labs(color = "Current Reward")
-suppressMessages(ggsave("ACC_RewTransExpectancy_plot.pdf", device = cairo_pdf, path = here("Rdata")))
+suppressMessages(ggsave("ACC_RewTransExpectancy_plot.png", device = "png", path = here("Rdata")))
 ```
 
 # VSR
@@ -1225,8 +1225,8 @@ p <- ggplot(choice_id_pred1, aes(x = x, y = predicted, color = group, group=grou
   labs(color = "Reward Prospect", subtitle = "BAS-Reward Responsiveness") +
   scale_color_discrete(type = c("#37C8C8", "#D728A9"))
 plot(p)
-ggsave(here("Rdata", "Choice_BAS2-Trans-Prob.pdf"), 
-                        device = cairo_pdf, dpi = 'retina', limitsize = FALSE, 
+ggsave(here("Rdata", "Choice_BAS2-Trans-Prob.png"), 
+                        device = "png", dpi = 'retina', limitsize = FALSE, 
                         width = 6, height = 7, units = "in")
 
 # Figure with continuous bas
@@ -1244,8 +1244,8 @@ p <- ggplot(choice_id_pred1, aes(x = x, y = predicted)) +
   scale_color_discrete(type = c("#37C8C8", "#D728A9")) +
   scale_fill_discrete(type = c("#37C8C8", "#D728A9"))
 plot(p)
-ggsave(here("Rdata", "Choice_BAScont-Trans-Prob.pdf"), 
-                        device = cairo_pdf, dpi = 'retina', limitsize = FALSE, 
+ggsave(here("Rdata", "Choice_BAScont-Trans-Prob.png"), 
+                        device = "png", dpi = 'retina', limitsize = FALSE, 
                         width = 6, height = 8, units = "in")
 ```
 
@@ -1276,8 +1276,8 @@ p <- ggplot(choice_id_pred2, aes(x = x, y = predicted, group = group, color = gr
   scale_y_continuous(limits = c(.2, .4), breaks = seq(.2,.4,.1), 
                      labels = c(".2",".3", ".4"))
 set_palette(p=p, palette = "Dark2")
-ggsave(here("Rdata", "Choice_Trans-Prob.pdf"), 
-                        device = cairo_pdf, dpi = 'retina', limitsize = FALSE, 
+ggsave(here("Rdata", "Choice_Trans-Prob.png"), 
+                        device = "png", dpi = 'retina', limitsize = FALSE, 
                         width = 5, height = 7, units = "in")
 ```
 
@@ -1305,7 +1305,7 @@ p <- ggplot(choice_id_pred3, aes(x = x, y = predicted, color = group, group=grou
   xlab("Previous Reward Outcome") + ylab("Switch Probability") + 
   labs(color = "Reward Prospect", subtitle = "BIS")
 set_palette(p=p, palette = "simpsons")
-ggsave(here("Rdata", "Choice_RewTransBIS.pdf"), device = cairo_pdf, 
+ggsave(here("Rdata", "Choice_RewTransBIS.png"), device = "png", 
        dpi = 'retina', limitsize = FALSE,
        width = 6, height = 5, units = "in")
 ```
@@ -1338,7 +1338,334 @@ p <- ggplot(choice_id_pred4, aes(x = x, y = predicted, color = group, group=grou
   labs(color = "Reward Prospect", subtitle = "BAS-Reward Responsiveness") +
   scale_color_discrete(type = c("#EA15D9", "#15EA26"))
 plot(p)
-ggsave(here("Rdata", "Choice_RewTransBAS.pdf"), device = cairo_pdf, 
+ggsave(here("Rdata", "Choice_RewTransBAS.png"), device = "png", 
        dpi = 'retina', limitsize = FALSE,
        width = 6, height = 5, units = "in")
+```
+
+## Choice Bayesian Models
+
+```{r}
+choice_id_b4 <- readRDS("~/Documents/repositories/vts-expectancy-f22/Rdata/choice_id_b4.Rds")
+summary(choice_id_b4)
+```
+
+```         
+prevRew1:rewCond1:rewExpectancy1                     -0.05      0.02    -0.08    -0.01 1.00    40629    25087
+```
+
+### PrevCurrRew by Expectancy
+
+```{r}
+choice_id_b4_emm1 <- ggemmeans(choice_id_b4, 
+                          terms = c("prevRew", "rewCond", "rewExpectancy"),
+                          type = "fe")
+choice_id_b4_emm1$facet <- factor(choice_id_b4_emm1$facet, levels = c("high", "low"), 
+                                labels = c("80%", "60%"))
+
+
+p <- ggplot(choice_id_b4_emm1, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(aes(linetype=group), linewidth = 1.5, position = position_dodge(.3), show.legend = F) + 
+  geom_point(size = 3, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .3, linewidth = 1.5) +
+  facet_grid(cols = vars(facet)) +
+  xlab("Previous Reward Outcome") + ylab("Switch Probability") + 
+  labs(color = "Current\nReward Prospect", subtitle = "Reward Expectancy") +
+  theme(legend.position = "bottom", legend.direction = "horizontal")
+set_palette(p=p, palette = "Dark2")
+ggsave(here("Rdata", "Choice_PrevRewExpectancy.png"), 
+                        device = "png", dpi = 'retina', limitsize = FALSE, 
+                        width = 8, height = 6, units = "in")
+```
+
+```{r}
+choice_id_emm1 <- emmeans::emmeans(choice_id_b4, specs = c("prevRew", "rewCond"), by = "rewExpectancy")
+pairs(choice_id_emm1)
+emmeans::joint_tests(choice_id_emm1, by = "rewExpectancy")
+```
+
+### PrevCurrRew by BIS
+
+```         
+prevRew1:rewCond1:bisC                               -0.04      0.02    -0.07    -0.00 1.00    38677    26606
+```
+
+```{r}
+choice_id_b4_emm2 <- ggemmeans(choice_id_b4, 
+                          terms = c("prevRew", "rewCond", "bisC"),
+                          type = "fe")
+choice_id_b4_emm2$facet <- factor(choice_id_b4_emm2$facet, levels = c("-0.95", "0.03", "1.02"),
+                                  labels = c("-1SD", "Mean", "+1SD"))
+
+
+p <- ggplot(choice_id_b4_emm2, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(aes(linetype=group), linewidth = 1.5, position = position_dodge(.3), show.legend = F) + 
+  geom_point(size = 3, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .3, linewidth = 1.5) +
+  facet_grid(cols = vars(facet)) +
+  xlab("Previous Reward Outcome") + ylab("Switch Probability") + 
+  labs(color = "Current\nReward Prospect", subtitle = "BIS") +
+  theme(legend.position = "bottom", legend.direction = "horizontal")
+set_palette(p=p, palette = "Set1")
+ggsave(here("Rdata", "Choice_PrevRewExpectancyBIS.png"), 
+                        device = "png", dpi = 'retina', limitsize = FALSE, 
+                        width = 8, height = 6, units = "in")
+```
+
+```{r}
+choice_id_emm2 <- emmeans(choice_id_b4, specs = c("prevRew","rewCond"), by = "bisC", at = list("bisC" = c(-1, 0, 1)))
+pairs(choice_id_emm2)
+```
+
+```{r}
+joint_tests(choice_id_emm2, by = "bisC")
+```
+
+### PrevCurrRew by Expectancy by BAS
+
+```         
+prevRew1:rewCond1:rewExpectancy1:basrrC               0.07      0.02     0.04     0.10 1.00    45703    24634
+```
+
+```{r}
+choice_id_b4_emm3a <- ggemmeans(choice_id_b4, 
+                          terms = c("prevRew", "rewCond", "rewExpectancy[high]", "basrrC"),
+                          type = "fe")
+choice_id_b4_emm3b <- ggemmeans(choice_id_b4, 
+                          terms = c("prevRew", "rewCond", "rewExpectancy[low]", "basrrC"),
+                          type = "fe")
+choice_id_b4_emm3a$facet <- factor(choice_id_b4_emm3a$facet, levels = c("high", "low"), 
+                                labels = c("80%", "60%"))
+choice_id_b4_emm3b$facet <- factor(choice_id_b4_emm3b$facet, levels = c("high", "low"), 
+                                labels = c("80%", "60%"))
+choice_id_b4_emm3a$panel <- factor(choice_id_b4_emm3a$panel, levels = c(-0.94, .04, 1.02), 
+                                labels = c("-1SD", "Mean", "+1SD"))
+choice_id_b4_emm3b$panel <- factor(choice_id_b4_emm3b$panel, levels = c(-0.94, .04, 1.02), 
+                                labels = c("-1SD", "Mean", "+1SD"))
+
+p1 <- ggplot(choice_id_b4_emm3a, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(aes(linetype=group), linewidth = 1.5, position = position_dodge(.3), show.legend = F) + 
+  geom_point(size = 3, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .3, linewidth = 1.5) +
+  facet_grid(rows = vars(facet), cols = vars(panel)) +
+  xlab("Previous Reward Outcome") + ylab("Switch Probability") + 
+  labs(color = "Current\nReward Prospect", subtitle = "Reward Responsiveness") +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  scale_y_continuous(limits = c(.18,.45), breaks = seq(.2,.4,.1), labels = c("0.2","0.3","0.4")) +
+  scale_color_discrete(type = c("#0042ee", "#720022"))
+plot(p1)
+ggsave(here("Rdata", "Choice_PrevRewHighExpectBAS.png"), 
+                        device = "png", dpi = 'retina', limitsize = FALSE, 
+                        width = 8, height = 7, units = "in")
+
+p2 <- ggplot(choice_id_b4_emm3b, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(aes(linetype=group), linewidth = 1.5, position = position_dodge(.3), show.legend = F) + 
+  geom_point(size = 3, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .3, linewidth = 1.5) +
+  facet_grid(rows = vars(facet), cols = vars(panel)) +
+  xlab("Previous Reward Outcome") + ylab("Switch Probability") + 
+  labs(color = "Current\nReward Prospect", subtitle = "Reward Responsiveness") +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  scale_y_continuous(limits = c(.18,.45), breaks = seq(.2,.4,.1), labels = c("0.2","0.3","0.4")) +
+  scale_color_discrete(type = c("#0042ee", "#720022"))
+plot(p2)
+
+ggsave(here("Rdata", "Choice_PrevRewLowExpectBAS.png"), 
+                        device = "png", dpi = 'retina', limitsize = FALSE, 
+                        width = 8, height = 7, units = "in")
+```
+
+```{r}
+choice_id_trans <- ggemmeans(choice_id_b4, 
+                          terms = c("prevRew", "rewCond", "rewExpectancy[high]"),
+                          type = "fe")
+
+ggplot(choice_id_trans, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(aes(linetype=group), linewidth = 1.5, position = position_dodge(.3), show.legend = F) + 
+  geom_point(size = 3, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .3, linewidth = 1.5) +
+  xlab("Previous Reward Outcome") + ylab("Switch Probability") + 
+  labs(color = "Current\nReward Prospect") +
+  theme(legend.position = "bottom", legend.direction = "horizontal")
+```
+
+### Effect of FTCD
+
+```         
+ftcd_score                                           -0.43      0.21    -0.85    -0.01 1.00    29902    23996
+```
+
+```{r}
+choice_id_ftcd <- ggemmeans(choice_id_b4, 
+                          terms = "ftcd_score",
+                          type = "fe")
+
+p <- ggplot(choice_id_ftcd, aes(x = x, predicted = predicted)) +
+  geom_ribbon(aes(ymin=conf.low, ymax=conf.high), 
+              alpha=0.2, show.legend = FALSE) +
+  geom_smooth(aes(y=predicted), linewidth=1.5) +
+  xlab("Previous Reward Outcome") + ylab("Switch Probability")
+plot(p)
+```
+
+### Trans Effect
+
+```{r}
+p <- ggplot(choice_trans_pred1, aes(x = x, y = predicted, group=group)) +
+  geom_line(linewidth = 1.5, position = position_dodge(.3), show.legend = F) + 
+  geom_point(size = 3, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .3, linewidth = 1.5) +
+  xlab("Reward Transition") + ylab("Switch Probability") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.7))
+plot(p)
+ggsave(here("Rdata", "Choice_Trans.png"), device = "png", 
+       dpi = 'retina', width = 6, height = 5, units = "in")
+```
+
+### Trans Expectancy
+
+```{r}
+choice_trans_pred2$group <- factor(choice_trans_pred2$group, levels = c("high", "low"), 
+                                labels = c("80%", "60%"))
+p <- ggplot(choice_trans_pred2, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(aes(linetype=group), linewidth = 1.5, position = position_dodge(.3), 
+            show.legend = F) + 
+  geom_point(size = 3, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .3, linewidth = 1.5) +
+  xlab("Reward Transition") + ylab("Switch Probability") + 
+  labs(color = "Reward Expectancy") +
+  theme(legend.position = "bottom", legend.direction = "horizontal",
+        axis.text.x = element_text(angle = 45, vjust = 0.7)) +
+  scale_color_discrete(type = c("#AA3939", "#2D882D"))
+plot(p)
+ggsave(here("Rdata", "Choice_TransExpectancy.png"), 
+                        device = "png", dpi = 'retina', limitsize = FALSE, 
+                        width = 6, height = 5, units = "in")
+```
+
+```{r}
+choice_trans_emm2 <- emmeans(choice_trans_id_b5, specs = "rewTrans", by = "rewExpectancy")
+contrast(choice_trans_emm2, "poly")
+```
+### Trans BAS & BIS
+
+```{r}
+choice_trans_pred3$group <- factor(choice_trans_pred3$group, levels = c(-0.94, 0.04, 1.02), 
+                                labels = c("-1SD", "Mean", "+1SD"))
+p <- ggplot(choice_trans_pred3, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(aes(linetype=group), linewidth = 1.5, position = position_dodge(.3), 
+            show.legend = F) + 
+  geom_point(size = 3, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .3, linewidth = 1.5) +
+  xlab("Reward Transition") + ylab("Switch Probability") + 
+  labs(color = "Reward\nResponsiveness") +
+  theme(legend.position = "bottom", legend.direction = "horizontal",
+        axis.text.x = element_text(angle = 45, vjust = 0.7)) +
+  scale_color_discrete(type = c("#AA6639", "#2C4770", "#448F30"))
+plot(p)
+ggsave(here("Rdata", "Choice_TransBAS.png"), 
+                        device = "png", dpi = 'retina', limitsize = FALSE, 
+                        width = 7, height = 6, units = "in")
+
+choice_trans_pred4$group <- factor(choice_trans_pred4$group, levels = c(-0.95, 0.03, 1.02), 
+                                labels = c("-1SD", "Mean", "+1SD"))
+p <- ggplot(choice_trans_pred4, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(aes(linetype=group), linewidth = 1.5, position = position_dodge(.3), 
+            show.legend = F) + 
+  geom_point(size = 3, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .3, linewidth = 1.5) +
+  xlab("Reward Transition") + ylab("Switch Probability") + 
+  labs(color = "BIS") +
+  theme(legend.position = "bottom", legend.direction = "horizontal",
+        axis.text.x = element_text(angle = 45, vjust = 0.7)) +
+  scale_color_discrete(type = c("#C01717", "#003333", "#7EB315"))
+plot(p)
+ggsave(here("Rdata", "Choice_TransBIS.png"), 
+                        device = "png", dpi = 'retina', limitsize = FALSE, 
+                        width = 7, height = 6, units = "in")
+```
+
+```{r}
+choice_trans_emm3 <- emmeans(choice_trans_id_b5, specs = "rewTrans", by = "basrrC", at = list("basrrC" = c(-1, 0, 1)))
+contrast(choice_trans_emm3, "poly")
+choice_trans_emm4 <- emmeans(choice_trans_id_b5, specs = "rewTrans", by = "bisC", at = list("bisC" = c(-1, 0, 1)))
+contrast(choice_trans_emm4, "poly")
+```
+### Trans by Expectancy by Gender by BIS
+```{r}
+choice_trans_pred5$group <- factor(choice_trans_pred5$group, levels = c("high", "low"), 
+                                labels = c("80%", "60%"))
+choice_trans_pred5$panel <- factor(choice_trans_pred5$panel, levels = c(-0.95, 0.03, 1.02), 
+                                labels = c("-1SD", "Mean", "+1SD"))
+
+p <- ggplot(choice_trans_pred5, aes(x = x, y = predicted, color = panel, group=panel)) +
+  geom_line(aes(linetype=panel), linewidth = 1.5, position = position_dodge(.3), show.legend = F) + 
+  geom_point(size = 3, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position = position_dodge(.3), width = .3, linewidth = 2.0) +
+  facet_grid(rows = vars(group), cols = vars(facet)) +
+  xlab("Reward Transition") + ylab("Switch Probability") + 
+  labs(color = "BIS", subtitle = "Gender") +
+  guides(y.sec = guide_none("Reward Expectancy")) +
+  theme(legend.position = "bottom", legend.direction = "horizontal",
+        axis.text.x = element_text(angle = 45, vjust = 0.7)) +
+  scale_color_discrete(type = c("#FF7F15", "#10BFBF", "#8B1ACA"))
+plot(p)
+ggsave(here("Rdata", "Choice_TransGenderExpectancyBIS.png"), 
+                        device = "png", dpi = 'retina', limitsize = FALSE, 
+                        width = 10, height = 8, units = "in")
+```
+
+```{r}
+choice_trans_emm5 <- emmeans(choice_trans_id_b5, specs = "rewTrans", by = c("bisC", "genderid"), at = list("bisC" = c(-1, 0, 1)))
+contrast(choice_trans_emm5, "poly")
+```
+
+### Exploratory: Reward Outcome
+
+```{r}
+choice_outcome_b5 <- readRDS("~/Documents/repositories/vts-expectancy-f22/Rdata/choice_outcome_b5.Rds")
+summary(choice_outcome_b5)
+```
+
+prevRew1:genderidFemale:basrrC -0.10 0.06 -0.22 0.02 1.00 24454\
+prevRew2:genderidFemale:basrrC -0.09 0.04 -0.17 -0.00 1.00 28319\
+prevRew3:genderidFemale:basrrC -0.00 0.09 -0.17 0.16 1.00 24490\
+prevRew4:genderidFemale:basrrC -0.07 0.06 -0.19 0.06 1.00 24291\
+prevRew5:genderidFemale:basrrC 0.17 0.05 0.07 0.27 1.00 27494
+
+```{r}
+choice_outcome_emm1 <- ggemmeans(choice_outcome_b5, 
+                          terms = c("prevRew", "genderid", "basrrC"),
+                          type = "fe")
+choice_outcome_emm$facet <- factor(choice_outcome_emm$facet, levels = c(-0.94, .04, 1.02), 
+                                labels = c("-1SD", "Mean", "+1SD"))
+
+p <- ggplot(choice_outcome_emm, aes(x = x, y = predicted, color = group, group=group)) +
+  geom_line(aes(linetype=group), linewidth = 1.5, position = position_dodge(.3), show.legend = F) + 
+  geom_point(size = 3, position = position_dodge(.3)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), 
+                position =  position_dodge(.3), width = .3, linewidth = 1.5) +
+  facet_grid(cols = vars(facet)) +
+  xlab("Previous Reward Outcome") + ylab("Switch Probability") + 
+  labs(color = "Gender ID", subtitle = "Reward Responsiveness") +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  scale_color_discrete(type = c("#003f5c", "#ffa600"))
+plot(p)
+ggsave(here("Rdata", "Choice_OutcomeRR_Gender.png"), 
+                        device = "png", dpi = 'retina', limitsize = FALSE, 
+                        width = 8, height = 6, units = "in")
+```
+
+```{r}
+pairs(emmeans::emmeans(choice_outcome_b5, specs = c("prevRew", "genderid", "basrrC"), by = c("genderid", "basrrC"), at = list("basrrC" = c(-1, 0, 1))))
 ```
